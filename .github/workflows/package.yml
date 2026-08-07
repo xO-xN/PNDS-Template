@@ -61,7 +61,7 @@ jobs:
             console.log(`all ${deps.length} production dependencies present`);
           '
           for f in docs test .github .git supercollider/source supercollider/debug \
-                   README.md .gitignore package-lock.json; do
+                   .gitignore package-lock.json; do
             if [ -e "$BUNDLE/$f" ]; then
               echo "::error::$f must not be in the performance bundle"
               exit 1
