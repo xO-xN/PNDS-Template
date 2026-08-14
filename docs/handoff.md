@@ -43,6 +43,7 @@
 - 超过上限的新客户端**拒绝加入**（`PlayerRegistry`，含 reason）。
 - 断开连接立即释放 voice 与 id；重连凭 localStorage 中的 claim token 恢复 id 与最后状态（`lastControls` 按 token 键控）。
 - QR 码由 `lib/qr.js` 生成（`qrcode` npm 包，`GET /qr` 挂在 monitor server），monitor 页面 `<img src="/qr">` 显示。
+- FREQ 推子带音高刻度（2026-08-14）：范围内每半音一小格（C6–F#7，19 格），只标 3 个音名——中心音 **B6**（范围中心 2000 Hz 的最近半音）及其上下五度 **E6 / F#7**；范围端点 1000/3000 Hz 不在音高上，不标。映射保持线性 Hz（`freqRange` 不变），刻度数据在 `public/shared.js` 的 `freqTicks`，performer 页按 `freqFraction` 线性定位。
 - 本模板**不预装 node_modules**（`.gitignore` 排除）；首次使用按 creator-guide 执行 `npm install`。发布包必须预装。
 - p5 是模板的默认视觉方案，不是平台组件。
 

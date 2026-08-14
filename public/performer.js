@@ -11,6 +11,12 @@
 // hint and ignores input. The page joins the score server automatically
 // and recovers its client id after a reconnect via the persisted claim
 // token.
+//
+// The left (FREQ) fader carries a pitch scale: a small radial tick per
+// semitone inside the range (C6–F#7), with letter names on the center
+// note B6 (nearest note to the range center, 2000 Hz) and its fifth above
+// (F#7) / below (E6). The range endpoints (1000 / 3000 Hz) are not notes
+// and get no tick and no label.
 
 const P = window.PNDS;
 
@@ -42,6 +48,17 @@ const KNOB_RADIUS = 36; // knob diameter (p5 circle() takes a diameter)
 const CURVE_STEPS = 60; // arc sampling resolution for rendering
 const VALUE_OFFSET = 30; // value chip inset from the knob, away from the thumb
 const LABEL_INSET = 80; // role labels inset from the screen edges
+
+// FREQ fader pitch scale (left side only): one small radial tick per
+// semitone inside the range, brighter ticks + letter names for the center
+// note (B6) and its fifth above/below (E6 / F#7). Tick data comes from
+// shared.js freqTicks; the fader maps Hz linearly, so each tick sits at
+// freqFraction(freq) of the arc sweep.
+const TICK_HALF = 14; // small tick: half-length across the track
+const TICK_LABEL_HALF = 20; // labeled tick: extends past the track
+const TICK_LABEL_INSET = 30; // label distance from the track center line
+const TICK_SMALL_COLOR = [85, 94, 116];
+const TICK_LABEL_COLOR = [208, 216, 238];
 
 function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
@@ -331,10 +348,7 @@ function sendIfChanged() {
 // ------------------------------------------------------------
 
 function formatFreq() {
-  const hz = Math.round(
-    P.freqRange.min +
-      freqValue * (P.freqRange.max - P.freqRange.min),
-  );
+  const hz = Math.round(P.freqFromValue(freqValue));
   return hz + " Hz";
 }
 
@@ -370,6 +384,11 @@ function drawFader(side, value, valueText) {
   }
   endShape(OPEN);
 
+  // pitch scale on the FREQ fader (left side only)
+  if (side === "left") {
+    drawFreqScale(arc);
+  }
+
   // knob: white dot
   noStroke();
   fill(255);
@@ -379,6 +398,55 @@ function drawFader(side, value, valueText) {
   // covers it
   const chipX = side === "left" ? knob.x + VALUE_OFFSET : knob.x - VALUE_OFFSET;
   drawValueChip(valueText, chipX, knob.y, side);
+}
+
+// Radial tick across the track at the arc position for `freq`.
+function drawFreqTick(arc, freq, halfLength) {
+  const theta = arc.aBottom + P.freqFraction(freq) * arc.sweep;
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+
+  line(
+    arc.x + (arc.r - halfLength) * cos,
+    arc.y + (arc.r - halfLength) * sin,
+    arc.x + (arc.r + halfLength) * cos,
+    arc.y + (arc.r + halfLength) * sin,
+  );
+}
+
+// Letter-name label on the concave side of the arc (toward the screen
+// edge), away from the value chip and the thumb.
+function drawFreqTickLabel(arc, freq, name) {
+  const theta = arc.aBottom + P.freqFraction(freq) * arc.sweep;
+  const x = arc.x + (arc.r - TICK_LABEL_INSET) * Math.cos(theta);
+  const y = arc.y + (arc.r - TICK_LABEL_INSET) * Math.sin(theta);
+
+  noStroke();
+  fill(TICK_LABEL_COLOR[0], TICK_LABEL_COLOR[1], TICK_LABEL_COLOR[2]);
+  textSize(13);
+  textAlign(RIGHT, CENTER);
+  text(name, x - 4, y + 1);
+}
+
+// Pitch scale for the FREQ fader: every semitone inside the range gets a
+// small tick; the center note (B6) and its fifth above/below (E6 / F#7)
+// get a brighter tick and a letter name. The range endpoints are not
+// notes, so the scale starts at C6 and ends at F#7.
+function drawFreqScale(arc) {
+  const ticks = P.freqTicks;
+
+  stroke(TICK_SMALL_COLOR[0], TICK_SMALL_COLOR[1], TICK_SMALL_COLOR[2]);
+  strokeWeight(2);
+  for (const freq of ticks.semitones) {
+    drawFreqTick(arc, freq, TICK_HALF);
+  }
+
+  stroke(TICK_LABEL_COLOR[0], TICK_LABEL_COLOR[1], TICK_LABEL_COLOR[2]);
+  strokeWeight(3);
+  for (const entry of ticks.labeled) {
+    drawFreqTick(arc, entry.freq, TICK_LABEL_HALF);
+    drawFreqTickLabel(arc, entry.freq, entry.name);
+  }
 }
 
 // NOTE: the parameter is named valueText, not text — a parameter named

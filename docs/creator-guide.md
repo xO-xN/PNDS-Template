@@ -36,10 +36,11 @@ npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
 
 ## 作品规格（本模板实现的功能）
 
-- 演奏者界面：**手机横屏**触摸；竖屏时提示旋转。左半屏是 **AMP 推子**，右半屏是 **FREQ 推子**。
+- 演奏者界面：**手机横屏**触摸；竖屏时提示旋转。左半屏是 **FREQ 推子**（音高），右半屏是 **AMP 推子**（音量）。
 - 推子值经 Socket.IO 发到 score server，由 server 转为 OSC 控制 SuperCollider。
 - 每个加入的客户端获得一个 sine voice（一个 `templateSine` synth）。
 - FREQ 推子映射频率在 `public/shared.js` 的 `freqRange` 定义（**单一事实来源**）：performer 页面用它显示 Hz，server 的 `audio/controller.js` 从同一对象读取并映射为 OSC 频率，改一处两边同步。
+- FREQ 推子带**音高参考刻度**：范围内每个半音一小格（C6–F#7，共 19 格），只标 3 个音名——中心音 **B6**（最接近范围中心 2000 Hz 的音）及其上下五度 **E6 / F#7**；范围两端（1000/3000 Hz）不在音高上，不设刻度。刻度数据在 `public/shared.js` 的 `freqTicks`（单一事实来源）。
 - AMP 推子使用 **audio taper 曲线**（`value²`）：推子下半段控制更细腻。
 - 推子值在 scsynth 端做 **平滑**（`Lag.kr`，amp 50ms / freq 100ms），推子移动是滑动的，不产生突变/zipper noise。
 - **每个 voice 输出上限 -6 dB**（在 SynthDef 内 `amp * 0.5` 实现）。
@@ -92,6 +93,7 @@ docs/                     本指南与交接文档
 | 改监视端 | `public/monitor.js` |
 | 加 Socket.IO 事件 | `public/shared.js`（事件名）+ `server.js`（处理） |
 | 改推子频率范围 | `public/shared.js` 的 `freqRange`（页面显示与 server 发声自动同步，无需改 `audio/controller.js`） |
+| 改推子刻度 / 标注音名 | `public/shared.js` 的 `freqTicks`（半音刻度与音名标注） |
 | 改客户端上限 | `manifest.json` 的 `audio.outputChannels`（id 上限 = 输出声道数） |
 
 ## 单一事实来源（Single Source of Truth）
@@ -101,7 +103,7 @@ docs/                     本指南与交接文档
 - 它用 UMD 包装：浏览器里挂到 `window.PNDS`（页面脚本里 `const P = window.PNDS` 取别名），Node 里走 `module.exports`（server 端 `require`）。
 - **Socket.IO 事件名**（`events`）、**频率范围**（`freqRange`）、**客户端上限**（`maxClients`）、**localStorage token 键名**（`tokenKey`）都在这里定义。
 - **端口**的单一来源是 `manifest.json`（App 工程契约）。`shared.js` 在 Node 端自动从 manifest 读取，浏览器端由 server 动态注入——创作者只需改 manifest.json。
-- 修改频率范围只需改 `freqRange.min / max` 一处：performer 页面的 Hz 显示与 server 端 `audio/controller.js` 的 `mapFreq()`（`FREQ_MIN/FREQ_MAX` 从 shared 读取）自动同步。
+- 修改频率范围只需改 `freqRange.min / max` 一处：performer 页面的 Hz 显示与 server 端 `audio/controller.js` 的 `mapFreq()`（`FREQ_MIN/FREQ_MAX` 从 shared 读取）自动同步。线性映射辅助（`freqFromValue` / `freqFraction`）与推子刻度（`freqTicks`）也在 shared.js 中定义。
 - 基于模板创建新作品时，建议修改 `tokenKey` 为与作品 id 一致的名称（如 `”my-work-token”`），避免不同工程共用同一个 localStorage 键。
 
 ## 声音：编辑与编译 SynthDef
