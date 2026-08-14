@@ -49,13 +49,12 @@ const CURVE_STEPS = 60; // arc sampling resolution for rendering
 const VALUE_OFFSET = 30; // value chip inset from the knob, away from the thumb
 const LABEL_INSET = 80; // role labels inset from the screen edges
 
-// FREQ fader pitch scale (left side only): one small radial tick per
-// semitone inside the range, brighter ticks + letter names for the center
-// note (B6) and its fifth above/below (E6 / F#7). Tick data comes from
+// FREQ fader pitch scale (left side only): one uniform small radial tick
+// per semitone inside the range, with letter names on the center note
+// (B6) and its fifth above/below (E6 / F#7). Tick data comes from
 // shared.js freqTicks; the fader maps Hz linearly, so each tick sits at
 // freqFraction(freq) of the arc sweep.
-const TICK_HALF = 14; // small tick: half-length across the track
-const TICK_LABEL_HALF = 20; // labeled tick: extends past the track
+const TICK_HALF = 14; // tick half-length across the track
 const TICK_LABEL_INSET = 30; // label distance from the track center line
 const TICK_SMALL_COLOR = [85, 94, 116];
 const TICK_LABEL_COLOR = [208, 216, 238];
@@ -428,25 +427,27 @@ function drawFreqTickLabel(arc, freq, name) {
   text(name, x - 4, y + 1);
 }
 
-// Pitch scale for the FREQ fader: every semitone inside the range gets a
-// small tick; the center note (B6) and its fifth above/below (E6 / F#7)
-// get a brighter tick and a letter name. The range endpoints are not
+// Pitch scale for the FREQ fader: every semitone inside the range gets
+// the same small tick; the center note (B6) and its fifth above/below
+// (E6 / F#7) additionally get a letter name. The range endpoints are not
 // notes, so the scale starts at C6 and ends at F#7.
 function drawFreqScale(arc) {
   const ticks = P.freqTicks;
 
+  // push/pop isolates the scale's stroke/fill state: drawFreqTickLabel
+  // disables the stroke for its text, which must not leak into the next
+  // tick or into the knob/chip drawing in drawFader.
+  push();
   stroke(TICK_SMALL_COLOR[0], TICK_SMALL_COLOR[1], TICK_SMALL_COLOR[2]);
   strokeWeight(2);
   for (const freq of ticks.semitones) {
     drawFreqTick(arc, freq, TICK_HALF);
   }
 
-  stroke(TICK_LABEL_COLOR[0], TICK_LABEL_COLOR[1], TICK_LABEL_COLOR[2]);
-  strokeWeight(3);
   for (const entry of ticks.labeled) {
-    drawFreqTick(arc, entry.freq, TICK_LABEL_HALF);
     drawFreqTickLabel(arc, entry.freq, entry.name);
   }
+  pop();
 }
 
 // NOTE: the parameter is named valueText, not text — a parameter named
