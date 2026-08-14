@@ -13,10 +13,10 @@
 // token.
 //
 // The left (FREQ) fader carries a pitch scale: a small radial tick per
-// semitone inside the range (C6–F#7), with letter names on the center
-// note B6 (nearest note to the range center, 2000 Hz) and its fifth above
-// (F#7) / below (E6). The range endpoints (1000 / 3000 Hz) are not notes
-// and get no tick and no label.
+// semitone inside the range (C6–F#7); the center note B6 (nearest note to
+// the range center, 2000 Hz) and its fifth above (F#7) / below (E6) get a
+// brighter tick and a letter name. The range endpoints (1000 / 3000 Hz)
+// are not notes and get no tick and no label.
 
 const P = window.PNDS;
 
@@ -49,9 +49,9 @@ const CURVE_STEPS = 60; // arc sampling resolution for rendering
 const VALUE_OFFSET = 30; // value chip inset from the knob, away from the thumb
 const LABEL_INSET = 80; // role labels inset from the screen edges
 
-// FREQ fader pitch scale (left side only): one uniform small radial tick
-// per semitone inside the range, with letter names on the center note
-// (B6) and its fifth above/below (E6 / F#7). Tick data comes from
+// FREQ fader pitch scale (left side only): one small radial tick per
+// semitone inside the range; the labeled notes (E / B / F#) get the same
+// small tick in a brighter color plus a letter name. Tick data comes from
 // shared.js freqTicks; the fader maps Hz linearly, so each tick sits at
 // freqFraction(freq) of the arc sweep.
 const TICK_HALF = 14; // tick half-length across the track
@@ -429,8 +429,8 @@ function drawFreqTickLabel(arc, freq, name) {
 
 // Pitch scale for the FREQ fader: every semitone inside the range gets
 // the same small tick; the center note (B6) and its fifth above/below
-// (E6 / F#7) additionally get a letter name. The range endpoints are not
-// notes, so the scale starts at C6 and ends at F#7.
+// (E6 / F#7) get a brighter tick (same size) and a letter name. The range
+// endpoints are not notes, so the scale starts at C6 and ends at F#7.
 function drawFreqScale(arc) {
   const ticks = P.freqTicks;
 
@@ -442,6 +442,14 @@ function drawFreqScale(arc) {
   strokeWeight(2);
   for (const freq of ticks.semitones) {
     drawFreqTick(arc, freq, TICK_HALF);
+  }
+
+  // Brighter ticks for the labeled notes, drawn over the dim ones, then
+  // their letter names.
+  stroke(TICK_LABEL_COLOR[0], TICK_LABEL_COLOR[1], TICK_LABEL_COLOR[2]);
+  strokeWeight(2);
+  for (const entry of ticks.labeled) {
+    drawFreqTick(arc, entry.freq, TICK_HALF);
   }
 
   for (const entry of ticks.labeled) {

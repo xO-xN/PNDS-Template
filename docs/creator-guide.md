@@ -40,7 +40,7 @@ npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
 - 推子值经 Socket.IO 发到 score server，由 server 转为 OSC 控制 SuperCollider。
 - 每个加入的客户端获得一个 sine voice（一个 `templateSine` synth）。
 - FREQ 推子映射频率在 `public/shared.js` 的 `freqRange` 定义（**单一事实来源**）：performer 页面用它显示 Hz，server 的 `audio/controller.js` 从同一对象读取并映射为 OSC 频率，改一处两边同步。
-- FREQ 推子带**音高参考刻度**：范围内每个半音一小格（C6–F#7，共 19 格），只标 3 个音名——中心音 **B6**（最接近范围中心 2000 Hz 的音）及其上下五度 **E6 / F#7**；范围两端（1000/3000 Hz）不在音高上，不设刻度。刻度数据在 `public/shared.js` 的 `freqTicks`（单一事实来源）。
+- FREQ 推子带**音高参考刻度**：范围内每个半音一小格（C6–F#7，共 19 格），只标 3 个音名——中心音 **B6**（最接近范围中心 2000 Hz 的音）及其上下五度 **E6 / F#7**，这 3 格的刻度用**更亮的颜色**区分；范围两端（1000/3000 Hz）不在音高上，不设刻度。刻度数据在 `public/shared.js` 的 `freqTicks`（单一事实来源）。
 - AMP 推子使用 **audio taper 曲线**（`value²`）：推子下半段控制更细腻。
 - 推子值在 scsynth 端做 **平滑**（`Lag.kr`，amp 50ms / freq 100ms），推子移动是滑动的，不产生突变/zipper noise。
 - **每个 voice 输出上限 -6 dB**（在 SynthDef 内 `amp * 0.5` 实现）。

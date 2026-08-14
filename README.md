@@ -10,7 +10,7 @@ A ready-to-run PNDS digital score project skeleton with minimal working features
 
 ### Features
 
-- **Performer UI**: landscape touch interface with two curved faders (AMP / FREQ); the FREQ fader carries a semitone pitch scale (C6–F#7) labeled at the center note B6 and its fifth above/below (E6 / F#7)
+- **Performer UI**: landscape touch interface with two curved faders (AMP / FREQ); the FREQ fader carries a semitone pitch scale (C6–F#7) with highlighted ticks and letter names on the center note B6 and its fifth above/below (E6 / F#7)
 - **Audio**: one sine voice per client, 16-channel output (odd/even ids default to channels 1/2)
 - **Monitor**: real-time client amp/freq display, per-client output channel reassignment
 - **Reconnect recovery**: clients recover their id and fader state after a disconnect
@@ -49,7 +49,7 @@ PNDS 数字乐谱工程模板：可直接运行的骨架 + 最小功能实现。
 
 ### 功能
 
-- **演奏者界面**：手机横屏双推子（AMP / FREQ），FREQ 推子带半音音高刻度（C6–F#7，中心音 B6 及上下五度 E6/F#7 标音名），圆弧几何直观触摸操控
+- **演奏者界面**：手机横屏双推子（AMP / FREQ），FREQ 推子带半音音高刻度（C6–F#7，中心音 B6 及上下五度 E6/F#7 标音名且刻度高亮），圆弧几何直观触摸操控
 - **音频**：每客户端一个 sine voice，16 声道输出（默认奇偶 id 分到声道 1/2）
 - **监视端**：实时显示客户端 amp / freq，可重新分配每个客户端的输出声道
 - **断线重连**：客户端断线后自动恢复 id 与推子状态
