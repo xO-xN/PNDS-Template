@@ -14,13 +14,17 @@ const {
   AudioEngine,
 } = require("../lib/audio-engine");
 const { oscFloat } = require("../lib/osc-transport");
-const { freqRange } = require("../public/shared");
+const {
+  freqRange,
+  registers,
+  defaultRegister,
+} = require("../public/shared");
 
 const SYNTH_NAME = "templateSine";
 const GROUP_ID = 1000;
 const NODE_BASE = 1000;
 // Single source of truth: the same freqRange the performer page displays
-// (public/shared.js). Change the range there, not here.
+// (public/shared.js registers). Change the ranges there, not here.
 const FREQ_MIN = freqRange.min;
 const FREQ_MAX = freqRange.max;
 
@@ -34,10 +38,22 @@ function clamp01(value) {
   return Math.max(0, Math.min(1, number));
 }
 
-// Fader value (0..1) to frequency in Hz (range from shared.js freqRange).
-function mapFreq(value01) {
+// Register (fader band) from a control payload: 1 | 2 | 3, default 3.
+function resolveRegister(value) {
+  const number = Number(value);
+
+  return number === 1 || number === 2 || number === 3
+    ? number
+    : defaultRegister;
+}
+
+// Fader value (0..1) to frequency in Hz: linear over the register's range
+// (registers from shared.js). Invalid registers fall back to the default.
+function mapFreq(value01, register = defaultRegister) {
+  const range = registers[resolveRegister(register)].freqRange;
+
   return Math.round(
-    FREQ_MIN + clamp01(value01) * (FREQ_MAX - FREQ_MIN),
+    range.min + clamp01(value01) * (range.max - range.min),
   );
 }
 
@@ -98,6 +114,9 @@ class ProjectAudio {
       nodeId: NODE_BASE + id,
       amp: 0,
       freq: FREQ_MIN,
+      rawAmp: 0,
+      rawFreq: 0,
+      register: defaultRegister,
       out: defaultOutChannel(id),
     };
 
@@ -121,15 +140,21 @@ class ProjectAudio {
     return voice;
   }
 
-  async setControls(id, { amp, freq }) {
+  async setControls(id, { amp, freq, range }) {
     const voice = this.voices.get(id);
 
     if (!voice) {
       throw new Error(`No voice for client ${id}.`);
     }
 
-    voice.amp = mapAmp(amp);
-    voice.freq = mapFreq(freq);
+    // Keep the raw fader values (0..1) so a reconnect can restore the
+    // voice by re-mapping them (setControls must not be fed already-mapped
+    // values — that would map them twice).
+    voice.register = resolveRegister(range);
+    voice.rawAmp = clamp01(amp);
+    voice.rawFreq = clamp01(freq);
+    voice.amp = mapAmp(voice.rawAmp);
+    voice.freq = mapFreq(voice.rawFreq, voice.register);
 
     if (this.engine.mode === "internal") {
       await this.engine.setControls(voice.nodeId, {
@@ -190,6 +215,7 @@ class ProjectAudio {
       id,
       amp: voice.amp,
       freq: voice.freq,
+      register: voice.register,
       out: voice.out,
     }));
   }
@@ -206,6 +232,7 @@ module.exports = {
   clamp01,
   mapFreq,
   mapAmp,
+  resolveRegister,
   defaultOutChannel,
   validateOutChannel,
   SYNTH_NAME,

@@ -232,6 +232,7 @@ io.on("connection", (socket) => {
       await projectAudio.setControls(id, {
         amp: payload && payload.amp,
         freq: payload && payload.freq,
+        range: payload && payload.range,
       });
 
       const voice = projectAudio.voices.get(id);
@@ -239,8 +240,9 @@ io.on("connection", (socket) => {
 
       if (voice && token) {
         lastControls.set(token, {
-          amp: voice.amp,
-          freq: voice.freq,
+          amp: voice.rawAmp,
+          freq: voice.rawFreq,
+          range: voice.register,
           out: voice.out,
         });
       }
@@ -289,8 +291,9 @@ io.on("connection", (socket) => {
 
     if (voice) {
       lastControls.set(released.claimToken, {
-        amp: voice.amp,
-        freq: voice.freq,
+        amp: voice.rawAmp,
+        freq: voice.rawFreq,
+        range: voice.register,
         out: voice.out,
       });
     }

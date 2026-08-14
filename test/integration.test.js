@@ -10,7 +10,7 @@ const PERFORMER_URL = "http://127.0.0.1:6868";
 const MONITOR_URL = "http://127.0.0.1:6869";
 const HEALTH_URL = `${PERFORMER_URL}/__pnds/health`;
 
-const { freqRange } = require("../public/shared");
+const { freqRange, registers } = require("../public/shared");
 
 function waitForHealthReady() {
   return new Promise((resolve, reject) => {
@@ -131,6 +131,22 @@ test("score server: health, join, control, set-out, reconnect, pages", async (t)
   assert.equal(controlState.clients[0].amp, 0.25);
   assert.equal(controlState.clients[0].freq, expectedMidFreq);
 
+  // --- register: a control with range 2 maps over register 2's band ---
+  first.socket.emit("control", { amp: 0.5, freq: 0.5, range: 2 });
+
+  const expectedR2MidFreq = Math.round(
+    registers[2].freqRange.min +
+      0.5 * (registers[2].freqRange.max - registers[2].freqRange.min),
+  );
+
+  const registerState = await waitForState(
+    first.socket,
+    (state) =>
+      state.clients.length === 1 && state.clients[0].register === 2,
+  );
+
+  assert.equal(registerState.clients[0].freq, expectedR2MidFreq);
+
   // --- set-out: channel reassignment is reflected ---
   first.socket.emit("set-out", { out: 5 });
 
@@ -157,7 +173,21 @@ test("score server: health, join, control, set-out, reconnect, pages", async (t)
   assert.equal(secondState.clients[1].freq, freqRange.min); // freqValue 0 → freqRange.min
   assert.equal(secondState.clients[1].out, 2); // even id -> channel 2
 
-  // --- reconnect with token recovers id 1 ---
+  // --- register 1 for the second client ---
+  second.socket.emit("control", { amp: 0.25, freq: 0, range: 1 });
+
+  const secondRegisterState = await waitForState(
+    first.socket,
+    (state) =>
+      state.clients.length === 2 && state.clients[1].register === 1,
+  );
+
+  assert.equal(
+    secondRegisterState.clients[1].freq,
+    Math.round(registers[1].freqRange.min), // freqValue 0 → register 1 min
+  );
+
+  // --- reconnect with token recovers id 1 AND its register ---
   first.socket.close();
 
   const rejoined = await joinWithToken(first.data.token);
@@ -165,6 +195,24 @@ test("score server: health, join, control, set-out, reconnect, pages", async (t)
 
   assert.equal(rejoined.data.id, 1);
   assert.equal(rejoined.data.recovered, true);
+
+  const rejoinedState = await waitForState(
+    rejoined.socket,
+    (state) => {
+      // Voice insertion order flips after a reconnect (voices is a Map
+      // keyed by id), so find the restored client by id.
+      const client = (state.clients || []).find((entry) => entry.id === 1);
+      return Boolean(client && client.register === 2);
+    },
+  );
+
+  const restored = rejoinedState.clients.find((entry) => entry.id === 1);
+
+  // The voice is restored by re-mapping the RAW fader values: register 2,
+  // freq 0.5 → register 2 mid, amp 0.5 → 0.25 (no double mapping).
+  assert.equal(restored.register, 2);
+  assert.equal(restored.freq, expectedR2MidFreq);
+  assert.equal(restored.amp, 0.25);
 
   // --- pages served on both ports ---
   const performerResponse = await fetch(`${PERFORMER_URL}/`);

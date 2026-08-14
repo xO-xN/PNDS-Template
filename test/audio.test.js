@@ -8,6 +8,7 @@ const {
 const {
   mapFreq,
   mapAmp,
+  resolveRegister,
   defaultOutChannel,
   validateOutChannel,
 } = require("../audio/controller");
@@ -54,6 +55,33 @@ test("mapFreq maps the fader 0..1 to the freqRange from shared.js", () => {
   assert.equal(mapFreq(0.5), midFreq(0.5));
   assert.equal(mapFreq(-1), freqRange.min);   // clamped
   assert.equal(mapFreq(2), freqRange.max);    // clamped
+});
+
+const { registers } = require("../public/shared");
+
+test("mapFreq maps over the selected register's band", () => {
+  assert.equal(mapFreq(0, 1), Math.round(registers[1].freqRange.min));
+  assert.equal(mapFreq(1, 1), Math.round(registers[1].freqRange.max));
+  assert.equal(mapFreq(0, 2), Math.round(registers[2].freqRange.min));
+  assert.equal(mapFreq(1, 2), Math.round(registers[2].freqRange.max));
+  assert.equal(
+    mapFreq(0.5, 2),
+    Math.round(
+      registers[2].freqRange.min +
+        0.5 * (registers[2].freqRange.max - registers[2].freqRange.min),
+    ),
+  );
+  assert.equal(mapFreq(0.5, 99), mapFreq(0.5)); // invalid register -> default
+});
+
+test("resolveRegister coerces 1|2|3 and defaults to 3", () => {
+  assert.equal(resolveRegister(1), 1);
+  assert.equal(resolveRegister("2"), 2);
+  assert.equal(resolveRegister(3), 3);
+  assert.equal(resolveRegister(undefined), 3);
+  assert.equal(resolveRegister(null), 3);
+  assert.equal(resolveRegister(0), 3);
+  assert.equal(resolveRegister("x"), 3);
 });
 
 test("mapAmp applies an audio-taper (squared) curve", () => {

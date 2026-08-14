@@ -109,7 +109,7 @@ function layoutSelects() {
 
   selects.forEach((select, index) => {
     select.position(
-      tableX() + 348,
+      tableX() + 440,
       top + HEADER_HEIGHT + index * ROW_HEIGHT + 14,
     );
   });
@@ -174,7 +174,8 @@ function drawHeader() {
   text("ID", x + 16, y + HEADER_HEIGHT / 2);
   text("AMP", x + 96, y + HEADER_HEIGHT / 2);
   text("FREQ", x + 216, y + HEADER_HEIGHT / 2);
-  text("OUT CH", x + 348, y + HEADER_HEIGHT / 2);
+  text("RANGE", x + 348, y + HEADER_HEIGHT / 2);
+  text("OUT CH", x + 440, y + HEADER_HEIGHT / 2);
 
   stroke(42, 46, 58);
   line(x, y + HEADER_HEIGHT, x + TABLE_WIDTH, y + HEADER_HEIGHT);
@@ -192,6 +193,7 @@ function drawRow(client, y) {
   textSize(15);
   text(client.amp.toFixed(3), x + 96, y + ROW_HEIGHT / 2);
   text(Math.round(client.freq) + " Hz", x + 216, y + ROW_HEIGHT / 2);
+  text(String(client.register), x + 348, y + ROW_HEIGHT / 2);
 
   stroke(42, 46, 58);
   line(x, y + ROW_HEIGHT, x + TABLE_WIDTH, y + ROW_HEIGHT);
