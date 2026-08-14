@@ -38,16 +38,18 @@
 
   // Three fader registers (1 = low, 2 = mid, 3 = high) selectable by the
   // 3-position switch on the performer page. Every register has the same
-  // shape as the original 1000–3000 Hz range (register 3): the fader maps
-  // linearly over its freqRange, the scale marks the 19 notes inside it
-  // (the band endpoints are not notes, so the extreme ticks sit just
-  // inside the ends), and the center note (tick 12) with its fifth above /
-  // below gets a brighter tick and a letter name. Registers descend by
-  // fifths: each register's labeled notes are the previous register's
-  // labels shifted down one fifth, so the centers are B6 / E6 / A5 and
-  // each band is 7 semitones lower than the previous one.
+  // shape as the original 1000–3000 Hz range: the fader maps linearly over
+  // its freqRange, the scale marks the 19 notes inside it (the band
+  // endpoints are not notes, so the extreme ticks sit just inside the
+  // ends), and the center note (tick 12) with its fifth above / below gets
+  // a brighter tick and a letter name. The whole set sits a fifth lower
+  // than the original range, and registers descend by fifths: each
+  // register's labeled notes are the previous register's labels shifted
+  // down one fifth, so the centers are E6 / A5 / D5 and each band is 7
+  // semitones lower than the previous one.
   function buildRegister(centerMidi) {
-    var shift = (centerMidi - 95) / 12; // semitones relative to register 3
+    // Semitones relative to the original 1000–3000 Hz range's center (B6).
+    var shift = (centerMidi - 95) / 12;
     var factor = Math.pow(2, shift);
 
     var semitones = [];
@@ -70,9 +72,9 @@
   }
 
   var registers = {
-    1: buildRegister(81), // A5 center, fifths D5 / E6
-    2: buildRegister(88), // E6 center, fifths A5 / B6
-    3: buildRegister(95), // B6 center, fifths E6 / F#7 (original 1000-3000 Hz)
+    1: buildRegister(74), // D5 center, fifths G4 / A5
+    2: buildRegister(81), // A5 center, fifths D5 / E6
+    3: buildRegister(88), // E6 center, fifths A5 / B6
   };
 
   // Register 3 is the default (the original 1000–3000 Hz range); these

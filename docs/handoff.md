@@ -44,7 +44,7 @@
 - 断开连接立即释放 voice 与 id；重连凭 localStorage 中的 claim token 恢复 id 与最后状态（`lastControls` 按 token 键控）。
 - QR 码由 `lib/qr.js` 生成（`qrcode` npm 包，`GET /qr` 挂在 monitor server），monitor 页面 `<img src="/qr">` 显示。
 - FREQ 推子带音高刻度（2026-08-14）：每区 19 个半音小刻度（**等长**），只标中心音及其上下五度 3 个音名，这 3 格的刻度用**更亮的颜色**区分（大小不变）；范围端点不在音高上，不标。映射保持线性 Hz（每区 `freqRange` 不同），刻度数据在 `public/shared.js` 的每区 `freqTicks`，performer 页按 `freqFraction` 线性定位。
-- 三档音区 switch（2026-08-14）：performer 页状态文字下方居中的三位置 switch（1 低音 / 2 中音 / 3 高音），切换左侧 FREQ 推子的频率区段。`public/shared.js` 的 `registers` 是单一事实来源：每区 `freqRange` + `freqTicks`，中心音 **B6 / E6 / A5**（相邻差 7 半音），音名 **E-B-F# / A-E-B / D-A-E**——每区的标注音 = 上一区整体下移一个五度（中心音即上一区的下五度；2 为 A5/E6/B6，1 为 D5/A5/E6）。`control` 消息携带 `range`（1|2|3，缺省 3）；`lastControls` 存**原始推子值**（`rawAmp`/`rawFreq`）+ `range`，重连时由 `setControls` 重新映射恢复（避免双重映射）。monitor 页新增 RANGE 列显示每位演奏者的音区。
+- 三档音区 switch（2026-08-14）：performer 页状态文字下方居中的三位置 switch（1 低音 / 2 中音 / 3 高音），切换左侧 FREQ 推子的频率区段。`public/shared.js` 的 `registers` 是单一事实来源：每区 `freqRange` + `freqTicks`，中心音 **E6 / A5 / D5**（相邻差 7 半音；整体比原 1000–3000 Hz 低一个五度），音名 **A-E-B / D-A-E / G-D-A**——每区的标注音 = 上一区整体下移一个五度（中心音即上一区的下五度；3 为 A5/E6/B6，2 为 D5/A5/E6，1 为 G4/D5/A5）。`control` 消息携带 `range`（1|2|3，缺省 3）；`lastControls` 存**原始推子值**（`rawAmp`/`rawFreq`）+ `range`，重连时由 `setControls` 重新映射恢复（避免双重映射）。monitor 页新增 RANGE 列显示每位演奏者的音区。
 - 本模板**不预装 node_modules**（`.gitignore` 排除）；首次使用按 creator-guide 执行 `npm install`。发布包必须预装。
 - p5 是模板的默认视觉方案，不是平台组件。
 

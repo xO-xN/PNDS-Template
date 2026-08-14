@@ -21,22 +21,23 @@ test("freqTicks.semitones covers the 19 notes strictly inside the range", () => 
   assert.ok(freqTicks.semitones[0] > freqRange.min);
   assert.ok(freqTicks.semitones.at(-1) < freqRange.max);
 
-  // C6 = 1046.502 Hz and F#7 = 2959.955 Hz (A4 = 440 Hz).
-  assert.ok(Math.abs(freqTicks.semitones[0] - 440 * 2 ** (15 / 12)) < 1e-9);
-  assert.ok(Math.abs(freqTicks.semitones.at(-1) - 440 * 2 ** (33 / 12)) < 1e-9);
+  // F5 = 698.456 Hz and B6 = 1975.533 Hz (A4 = 440 Hz): the extreme ticks
+  // of the default register.
+  assert.ok(Math.abs(freqTicks.semitones[0] - 440 * 2 ** (8 / 12)) < 1e-9);
+  assert.ok(Math.abs(freqTicks.semitones.at(-1) - 440 * 2 ** (26 / 12)) < 1e-9);
 });
 
 test("freqTicks.labeled marks the center note and its upper/lower fifth", () => {
   assert.deepEqual(
     freqTicks.labeled.map((entry) => entry.name),
-    ["E", "B", "F#"],
+    ["A", "E", "B"],
   );
 
-  // E6 = B6's lower fifth (midi 88), F#7 = B6's upper fifth (midi 102).
+  // A5 = E6's lower fifth (midi 81), B6 = E6's upper fifth (midi 95).
   const expected = [
+    { name: "A", midi: 81 },
     { name: "E", midi: 88 },
     { name: "B", midi: 95 },
-    { name: "F#", midi: 102 },
   ];
   const semitoneSet = new Set(freqTicks.semitones);
 
@@ -53,10 +54,11 @@ test("freqTicks.labeled marks the center note and its upper/lower fifth", () => 
     );
   });
 
-  // The center label is the semitone tick nearest the range center (2000 Hz).
+  // The center label is the semitone tick nearest the band's center.
   const center = freqTicks.labeled[1];
+  const bandCenter = freqRange.min + (freqRange.max - freqRange.min) / 2;
   const nearest = freqTicks.semitones.reduce((best, freq) =>
-    Math.abs(freq - 2000) < Math.abs(best - 2000) ? freq : best,
+    Math.abs(freq - bandCenter) < Math.abs(best - bandCenter) ? freq : best,
   );
   assert.equal(center.freq, nearest);
 });
@@ -64,7 +66,10 @@ test("freqTicks.labeled marks the center note and its upper/lower fifth", () => 
 test("freq helpers invert the linear fader ↔ Hz mapping", () => {
   assert.equal(freqFromValue(0), freqRange.min);
   assert.equal(freqFromValue(1), freqRange.max);
-  assert.equal(freqFromValue(0.5), 2000);
+  assert.equal(
+    freqFromValue(0.5),
+    freqRange.min + 0.5 * (freqRange.max - freqRange.min),
+  );
   assert.equal(freqFraction(freqRange.min), 0);
   assert.equal(freqFraction(freqRange.max), 1);
   assert.equal(freqFraction(freqFromValue(0.25)), 0.25);
@@ -108,12 +113,12 @@ test("registers expose three bands with the same 19-tick structure", () => {
 });
 
 test("register bands descend by fifths (each register's labels = the previous register's shifted down one fifth)", () => {
-  // Centers are B6 / E6 / A5; every labeled note of a register is the
+  // Centers are E6 / A5 / D5; every labeled note of a register is the
   // same-named note of the next register, one fifth lower.
   const expectedNames = {
-    3: ["E", "B", "F#"],
-    2: ["A", "E", "B"],
-    1: ["D", "A", "E"],
+    3: ["A", "E", "B"],
+    2: ["D", "A", "E"],
+    1: ["G", "D", "A"],
   };
   for (const key of [1, 2, 3]) {
     assert.deepEqual(
@@ -139,9 +144,11 @@ test("register bands descend by fifths (each register's labels = the previous re
     );
   }
 
-  // Bands shift by 7 semitones per register.
-  assert.ok(Math.abs(registers[2].freqRange.min - 1000 * 2 ** (-7 / 12)) < 1e-9);
-  assert.ok(Math.abs(registers[1].freqRange.min - 1000 * 2 ** (-14 / 12)) < 1e-9);
+  // Bands shift by 7 semitones per register; register 3 itself sits one
+  // fifth below the original 1000–3000 Hz range.
+  assert.ok(Math.abs(registers[3].freqRange.min - 1000 * 2 ** (-7 / 12)) < 1e-9);
+  assert.ok(Math.abs(registers[2].freqRange.min - 1000 * 2 ** (-14 / 12)) < 1e-9);
+  assert.ok(Math.abs(registers[1].freqRange.min - 1000 * 2 ** (-21 / 12)) < 1e-9);
 });
 
 test("default register is 3 and freqRange/freqTicks alias it", () => {

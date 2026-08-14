@@ -41,7 +41,7 @@ npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
 - 每个加入的客户端获得一个 sine voice（一个 `templateSine` synth）。
 - FREQ 推子映射频率在 `public/shared.js` 的 `freqRange` 定义（**单一事实来源**）：performer 页面用它显示 Hz，server 的 `audio/controller.js` 从同一对象读取并映射为 OSC 频率，改一处两边同步。
 - FREQ 推子带**音高参考刻度**：范围内每个半音一小格（19 格），只标 3 个音名（中心音及其上下五度），这 3 格的刻度用**更亮的颜色**区分；范围两端不在音高上，不设刻度。刻度数据在 `public/shared.js` 的 `freqTicks`（单一事实来源）。
-- **三档音区 switch**（居中，位于状态文字下方）：`1`（低音）/ `2`（中音）/ `3`（高音），切换左侧 FREQ 推子的频率区段。推子位置不变，Hz 映射随音区改变（server 按同一音区映射）。音区数据在 `public/shared.js` 的 `registers`（单一事实来源）：每区都是同样的 19 半音结构，中心音分别为 **B6 / E6 / A5**（相邻区中心相差 7 半音），标注音名分别为 E-B-F# / A-E-B / D-A-E——**每区的标注音 = 上一区整体下移一个五度**（中心音即上一区的下五度）。
+- **三档音区 switch**（居中，位于状态文字下方）：`1`（低音）/ `2`（中音）/ `3`（高音），切换左侧 FREQ 推子的频率区段。推子位置不变，Hz 映射随音区改变（server 按同一音区映射）。音区数据在 `public/shared.js` 的 `registers`（单一事实来源）：每区都是同样的 19 半音结构，中心音分别为 **E6 / A5 / D5**（相邻区中心相差 7 半音；整体比原 1000–3000 Hz 低一个五度），标注音名分别为 A-E-B / D-A-E / G-D-A——**每区的标注音 = 上一区整体下移一个五度**（中心音即上一区的下五度）。
 - AMP 推子使用 **audio taper 曲线**（`value²`）：推子下半段控制更细腻。
 - 推子值在 scsynth 端做 **平滑**（`Lag.kr`，amp 50ms / freq 100ms），推子移动是滑动的，不产生突变/zipper noise。
 - **每个 voice 输出上限 -6 dB**（在 SynthDef 内 `amp * 0.5` 实现）。

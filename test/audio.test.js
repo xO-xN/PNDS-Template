@@ -50,11 +50,11 @@ function midFreq(value01) {
 }
 
 test("mapFreq maps the fader 0..1 to the freqRange from shared.js", () => {
-  assert.equal(mapFreq(0), freqRange.min);
-  assert.equal(mapFreq(1), freqRange.max);
+  assert.equal(mapFreq(0), Math.round(freqRange.min));
+  assert.equal(mapFreq(1), Math.round(freqRange.max));
   assert.equal(mapFreq(0.5), midFreq(0.5));
-  assert.equal(mapFreq(-1), freqRange.min);   // clamped
-  assert.equal(mapFreq(2), freqRange.max);    // clamped
+  assert.equal(mapFreq(-1), Math.round(freqRange.min));   // clamped
+  assert.equal(mapFreq(2), Math.round(freqRange.max));    // clamped
 });
 
 const { registers } = require("../public/shared");
