@@ -107,33 +107,41 @@ test("registers expose three bands with the same 19-tick structure", () => {
   }
 });
 
-test("register bands descend in fifths (upper fifth = two fifths below the previous center)", () => {
-  // register 2's upper fifth A5 = two fifths below register 3's center B6.
-  const upper2 = registers[2].freqTicks.labeled[2].freq;
-  const center3 = registers[3].freqTicks.labeled[1].freq;
-  assert.ok(Math.abs(upper2 - center3 / 2 ** (14 / 12)) < 1e-9);
+test("register bands descend by fifths (each register's labels = the previous register's shifted down one fifth)", () => {
+  // Centers are B6 / E6 / A5; every labeled note of a register is the
+  // same-named note of the next register, one fifth lower.
+  const expectedNames = {
+    3: ["E", "B", "F#"],
+    2: ["A", "E", "B"],
+    1: ["D", "A", "E"],
+  };
+  for (const key of [1, 2, 3]) {
+    assert.deepEqual(
+      registers[key].freqTicks.labeled.map((e) => e.name),
+      expectedNames[key],
+    );
+  }
 
-  // register 1's upper fifth C4 = two fifths below register 2's center D5.
-  const upper1 = registers[1].freqTicks.labeled[2].freq;
-  const center2 = registers[2].freqTicks.labeled[1].freq;
-  assert.ok(Math.abs(upper1 - center2 / 2 ** (14 / 12)) < 1e-9);
+  for (const index of [0, 1, 2]) {
+    // register 2's label[i] = register 3's label[i] shifted down one fifth.
+    assert.ok(
+      Math.abs(
+        registers[2].freqTicks.labeled[index].freq -
+          registers[3].freqTicks.labeled[index].freq / 2 ** (7 / 12),
+      ) < 1e-9,
+    );
+    // register 1's label[i] = register 2's label[i] shifted down one fifth.
+    assert.ok(
+      Math.abs(
+        registers[1].freqTicks.labeled[index].freq -
+          registers[2].freqTicks.labeled[index].freq / 2 ** (7 / 12),
+      ) < 1e-9,
+    );
+  }
 
-  // Bands shift by 21 semitones per register.
-  assert.ok(Math.abs(registers[2].freqRange.min - 1000 * 2 ** (-21 / 12)) < 1e-9);
-  assert.ok(Math.abs(registers[1].freqRange.min - 1000 * 2 ** (-42 / 12)) < 1e-9);
-
-  assert.deepEqual(
-    registers[3].freqTicks.labeled.map((e) => e.name),
-    ["E", "B", "F#"],
-  );
-  assert.deepEqual(
-    registers[2].freqTicks.labeled.map((e) => e.name),
-    ["G", "D", "A"],
-  );
-  assert.deepEqual(
-    registers[1].freqTicks.labeled.map((e) => e.name),
-    ["A#", "F", "C"],
-  );
+  // Bands shift by 7 semitones per register.
+  assert.ok(Math.abs(registers[2].freqRange.min - 1000 * 2 ** (-7 / 12)) < 1e-9);
+  assert.ok(Math.abs(registers[1].freqRange.min - 1000 * 2 ** (-14 / 12)) < 1e-9);
 });
 
 test("default register is 3 and freqRange/freqTicks alias it", () => {

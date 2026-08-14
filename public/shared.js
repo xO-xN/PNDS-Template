@@ -42,11 +42,10 @@
   // linearly over its freqRange, the scale marks the 19 notes inside it
   // (the band endpoints are not notes, so the extreme ticks sit just
   // inside the ends), and the center note (tick 12) with its fifth above /
-  // below gets a brighter tick and a letter name. Registers descend in
-  // fifths: register 2's upper fifth (A5) is two fifths below register 3's
-  // center (B6), and register 1's upper fifth (C4) two fifths below
-  // register 2's center (D5) — so the centers are B6 / D5 / F3 and each
-  // band is 21 semitones lower than the previous one.
+  // below gets a brighter tick and a letter name. Registers descend by
+  // fifths: each register's labeled notes are the previous register's
+  // labels shifted down one fifth, so the centers are B6 / E6 / A5 and
+  // each band is 7 semitones lower than the previous one.
   function buildRegister(centerMidi) {
     var shift = (centerMidi - 95) / 12; // semitones relative to register 3
     var factor = Math.pow(2, shift);
@@ -71,8 +70,8 @@
   }
 
   var registers = {
-    1: buildRegister(53), // F3 center, fifths A#2 / C4
-    2: buildRegister(74), // D5 center, fifths G4 / A5
+    1: buildRegister(81), // A5 center, fifths D5 / E6
+    2: buildRegister(88), // E6 center, fifths A5 / B6
     3: buildRegister(95), // B6 center, fifths E6 / F#7 (original 1000-3000 Hz)
   };
 
