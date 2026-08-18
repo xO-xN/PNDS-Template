@@ -1,16 +1,19 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { spawn } = require("node:child_process");
+const net = require("node:net");
 const path = require("node:path");
 
 const { io } = require("socket.io-client");
 
-const PROJECT_ROOT = path.join(__dirname, "..");
-const PERFORMER_URL = "http://127.0.0.1:6868";
-const MONITOR_URL = "http://127.0.0.1:6869";
-const HEALTH_URL = `${PERFORMER_URL}/__pnds/health`;
+const { freqRange, registers, events: EVENTS } = require("../public/shared");
+const { loadManifest, resolveServerConfig } = require("../lib/config");
 
-const { freqRange, registers } = require("../public/shared");
+const PROJECT_ROOT = path.join(__dirname, "..");
+const SERVER_CONFIG = resolveServerConfig(loadManifest(PROJECT_ROOT));
+const PERFORMER_URL = `http://127.0.0.1:${SERVER_CONFIG.performerPort}`;
+const MONITOR_URL = `http://127.0.0.1:${SERVER_CONFIG.monitorPort}`;
+const HEALTH_URL = `${PERFORMER_URL}/__pnds/health`;
 
 function waitForHealthReady() {
   return new Promise((resolve, reject) => {
@@ -52,15 +55,15 @@ function joinWithToken(token) {
     }, 5000);
 
     socket.on("connect", () => {
-      socket.emit("join", { token: token || null });
+      socket.emit(EVENTS.join, { token: token || null });
     });
 
-    socket.on("joined", (data) => {
+    socket.on(EVENTS.joined, (data) => {
       clearTimeout(timer);
       resolve({ socket, data });
     });
 
-    socket.on("rejected", (data) => {
+    socket.on(EVENTS.rejected, (data) => {
       clearTimeout(timer);
       socket.close();
       reject(new Error(`rejected: ${data.reason}`));
@@ -74,7 +77,7 @@ function joinWithToken(token) {
 function waitForState(socket, predicate, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      socket.off("state", onState);
+      socket.off(EVENTS.state, onState);
       reject(new Error("state timeout"));
     }, timeoutMs);
 
@@ -85,11 +88,36 @@ function waitForState(socket, predicate, timeoutMs = 5000) {
       }
     };
 
-    socket.on("state", onState);
+    socket.on(EVENTS.state, onState);
   });
 }
 
+// Fails fast with an actionable message when a dev server already holds
+// the ports — otherwise health polling would silently test THAT server
+// and fail with confusing assertion mismatches (wrong audio mode, etc.).
+async function assertPortsFree() {
+  for (const port of [SERVER_CONFIG.performerPort, SERVER_CONFIG.monitorPort]) {
+    const inUse = await new Promise((resolve) => {
+      const probe = net.connect({ port, host: "127.0.0.1" });
+
+      probe.once("connect", () => {
+        probe.destroy();
+        resolve(true);
+      });
+      probe.once("error", () => resolve(false));
+    });
+
+    if (inUse) {
+      throw new Error(
+        `Port ${port} is already in use — stop running dev servers (npm run dev / dev:none) before the integration test.`,
+      );
+    }
+  }
+}
+
 test("score server: health, join, control, set-out, reconnect, pages", async (t) => {
+  await assertPortsFree();
+
   const server = spawn(process.execPath, ["server.js", "--audio-mode", "none"], {
     cwd: PROJECT_ROOT,
     stdio: "ignore",
@@ -101,8 +129,8 @@ test("score server: health, join, control, set-out, reconnect, pages", async (t)
 
   assert.equal(health.projectId, "pnds-template");
   assert.equal(health.audioMode, "none");
-  assert.equal(health.scoreServer.performerPort, 6868);
-  assert.equal(health.scoreServer.monitorPort, 6869);
+  assert.equal(health.scoreServer.performerPort, SERVER_CONFIG.performerPort);
+  assert.equal(health.scoreServer.monitorPort, SERVER_CONFIG.monitorPort);
 
   // --- join: first client gets id 1 + a claim token ---
   const first = await joinWithToken(null);
@@ -113,7 +141,7 @@ test("score server: health, join, control, set-out, reconnect, pages", async (t)
   assert.equal(first.data.token.length, 48);
 
   // --- control: monitor receives amp (audio-taper curve) and freq ---
-  first.socket.emit("control", { amp: 0.5, freq: 0.5 });
+  first.socket.emit(EVENTS.control, { amp: 0.5, freq: 0.5 });
 
   const expectedMidFreq = Math.round(
     freqRange.min + 0.5 * (freqRange.max - freqRange.min),
@@ -132,7 +160,7 @@ test("score server: health, join, control, set-out, reconnect, pages", async (t)
   assert.equal(controlState.clients[0].freq, expectedMidFreq);
 
   // --- register: a control with range 2 maps over register 2's band ---
-  first.socket.emit("control", { amp: 0.5, freq: 0.5, range: 2 });
+  first.socket.emit(EVENTS.control, { amp: 0.5, freq: 0.5, range: 2 });
 
   const expectedR2MidFreq = Math.round(
     registers[2].freqRange.min +
@@ -148,7 +176,7 @@ test("score server: health, join, control, set-out, reconnect, pages", async (t)
   assert.equal(registerState.clients[0].freq, expectedR2MidFreq);
 
   // --- set-out: channel reassignment is reflected ---
-  first.socket.emit("set-out", { out: 5 });
+  first.socket.emit(EVENTS.setOut, { out: 5 });
 
   const outState = await waitForState(
     first.socket,
@@ -157,13 +185,29 @@ test("score server: health, join, control, set-out, reconnect, pages", async (t)
 
   assert.equal(outState.clients[0].out, 5);
 
+  // --- operator set-out: a socket that never joined (the monitor page)
+  // reassigns a client by naming the id ---
+  const operator = io(PERFORMER_URL, { reconnection: false });
+  t.after(() => operator.close());
+
+  await new Promise((resolve) => operator.on("connect", resolve));
+
+  operator.emit(EVENTS.setOut, { id: 1, out: 6 });
+
+  const operatorState = await waitForState(
+    first.socket,
+    (state) => state.clients.length === 1 && state.clients[0].out === 6,
+  );
+
+  assert.equal(operatorState.clients[0].out, 6);
+
   // --- second client: id 2, default channel 2 (even id) ---
   const second = await joinWithToken(null);
   t.after(() => second.socket.close());
 
   assert.equal(second.data.id, 2);
 
-  second.socket.emit("control", { amp: 0.25, freq: 0 });
+  second.socket.emit(EVENTS.control, { amp: 0.25, freq: 0 });
 
   const secondState = await waitForState(
     first.socket,
@@ -174,7 +218,7 @@ test("score server: health, join, control, set-out, reconnect, pages", async (t)
   assert.equal(secondState.clients[1].out, 2); // even id -> channel 2
 
   // --- register 1 for the second client ---
-  second.socket.emit("control", { amp: 0.25, freq: 0, range: 1 });
+  second.socket.emit(EVENTS.control, { amp: 0.25, freq: 0, range: 1 });
 
   const secondRegisterState = await waitForState(
     first.socket,

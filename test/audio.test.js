@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const {
+  AudioEngine,
   resolveOutputBus,
   resolveOutputChannels,
 } = require("../lib/audio-engine");
@@ -39,6 +40,25 @@ test("resolveOutputChannels falls back to manifest, then to 2", () => {
   assert.throws(() =>
     resolveOutputChannels({ PNDS_AUDIO_OUTPUT_CHANNELS: "65" }, {}),
   );
+});
+
+test("engine commands after stop() are no-ops (shutdown race)", async () => {
+  const engine = new AudioEngine({
+    mode: "none",
+    target: "127.0.0.1:57110",
+    projectRoot: ".",
+    manifest: {},
+    environment: {},
+  });
+
+  await engine.start();
+  await engine.stop();
+
+  // Late voice releases from the protocol's disconnect handler arrive
+  // while the transport is already closed — they must not throw.
+  await engine.freeNode(1001);
+  await engine.setControls(1001, { amp: 0 });
+  await engine.send("/c1/amp", [0]);
 });
 
 const { freqRange } = require("../public/shared");

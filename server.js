@@ -66,12 +66,13 @@ const monitorApp = express();
 app.use(express.static(path.join(PROJECT_ROOT, "public")));
 monitorApp.use(express.static(path.join(PROJECT_ROOT, "public")));
 
-// Injects manifest ports into the browser so shared.js can read them.
-// The single source of truth is manifest.json — shared.js no longer
-// hardcodes ports.
+// Injects runtime config into the browser so shared.js can read it.
+// Ports come from the manifest; outputChannels is the RESOLVED channel
+// count (App-injected PNDS_AUDIO_OUTPUT_CHANNELS or the manifest value),
+// so the monitor page offers exactly the channels the server validates.
 function configScript(request, response) {
   response.type("application/javascript").send(
-    `window.__PNDS_PORTS__ = { performerPort: ${serverConfig.performerPort}, monitorPort: ${serverConfig.monitorPort} };`
+    `window.__PNDS_CONFIG__ = { performerPort: ${serverConfig.performerPort}, monitorPort: ${serverConfig.monitorPort}, outputChannels: ${audioEngine.outputChannels} };`,
   );
 }
 

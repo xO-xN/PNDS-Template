@@ -72,13 +72,16 @@ function createSelects() {
   for (const client of clients) {
     const select = createSelect();
 
-    for (let channel = 1; channel <= P.maxClients; channel += 1) {
+    for (let channel = 1; channel <= P.outputChannels; channel += 1) {
       select.option(String(channel));
     }
 
     select.selected(String(client.out));
     select.changed(() => {
-      socket.emit(P.events.setOut, { out: Number(select.value()) });
+      socket.emit(P.events.setOut, {
+        id: client.id,
+        out: Number(select.value()),
+      });
     });
 
     select.style("background", "#22262f");

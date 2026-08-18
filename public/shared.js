@@ -3,25 +3,28 @@
 // Works as a plain browser global (window.PNDS) and as a Node module.
 //
 // Single source of truth:
-//   Ports   → manifest.json (browser gets them via __config.js injected by the server)
-//   Events  → here (events)
-//   Freq    → here (registers: freqRange + freqTicks per register)
-//   Token   → here (tokenKey)
+//   Ports    → manifest.json (browser gets them via __config.js injected by the server)
+//   Channels → the server's resolved output channel count (browser: __config.js;
+//              Node: the manifest value — App-injected overrides only exist
+//              server-side and travel to the browser via the injection)
+//   Events   → here (events)
+//   Freq     → here (registers: freqRange + freqTicks per register)
+//   Token    → here (tokenKey)
 
 (function (root, factory) {
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = factory({ readPorts: readManifestPorts });
+    module.exports = factory({ readConfig: readManifestConfig });
   } else {
     root.PNDS = factory({
-      readPorts: function () {
-        var cfg = root.__PNDS_PORTS__;
-        if (!cfg) throw new Error("__PNDS_PORTS__ not set — ensure __config.js loads before shared.js");
+      readConfig: function () {
+        var cfg = root.__PNDS_CONFIG__;
+        if (!cfg) throw new Error("__PNDS_CONFIG__ not set — ensure __config.js loads before shared.js");
         return cfg;
       },
     });
   }
 })(typeof self !== "undefined" ? self : this, function (deps) {
-  var ports = deps.readPorts();
+  var config = deps.readConfig();
 
   // A4 = 440 Hz reference (midi 69).
   function midiToFreq(midi) {
@@ -85,11 +88,12 @@
 
   return {
     // Read from manifest.json (or __config.js in the browser).
-    // Change ports ONLY in manifest.json.
-    performerPort: ports.performerPort,
-    monitorPort: ports.monitorPort,
-
-    maxClients: 16,
+    // Change ports ONLY in manifest.json. outputChannels is the server's
+    // resolved channel count — the monitor page's channel options must
+    // match what the server actually validates.
+    performerPort: config.performerPort,
+    monitorPort: config.monitorPort,
+    outputChannels: config.outputChannels,
 
     // The three fader registers (1 = low, 2 = mid, 3 = high) selectable by
     // the performer page's 3-position switch. freqRange / freqTicks below
@@ -126,15 +130,21 @@
   };
 });
 
-// Node: read ports from manifest.json (the single source of truth).
-function readManifestPorts() {
+// Node: read config from manifest.json (the single source of truth).
+function readManifestConfig() {
   var fs = require("node:fs");
   var path = require("node:path");
   // shared.js lives in public/; the manifest is one directory up.
   var manifestPath = path.join(__dirname, "..", "manifest.json");
   var manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  // Mirrors lib/audio-engine.js: env override > manifest > 2. The env
+  // override only exists in the server process — the browser always gets
+  // the resolved value via __config.js injection.
+  var outputChannels =
+    (manifest.audio && manifest.audio.outputChannels) || 2;
   return {
     performerPort: manifest.scoreServer.performerPort,
     monitorPort: manifest.scoreServer.monitorPort,
+    outputChannels: outputChannels,
   };
 }

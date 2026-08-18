@@ -25,6 +25,7 @@ const P = window.PNDS;
 let socket = null;
 let joined = false;
 let myId = null;
+let myOut = null; // current output channel, tracked from state broadcasts
 let rejectedReason = null;
 
 let ampValue = 0;
@@ -113,6 +114,7 @@ function connectSocket() {
   socket.on(P.events.joined, (data) => {
     joined = true;
     myId = data.id;
+    myOut = null; // arrives with the first state broadcast
     rejectedReason = null;
     localStorage.setItem(P.tokenKey, data.token);
   });
@@ -120,7 +122,20 @@ function connectSocket() {
   socket.on(P.events.rejected, (data) => {
     joined = false;
     myId = null;
+    myOut = null;
     rejectedReason = data.reason || "Rejected";
+  });
+
+  // Track this voice's output channel from the state broadcasts, so the
+  // status line follows channel reassignments made on the monitor page.
+  socket.on(P.events.state, (data) => {
+    if (myId === null) {
+      return;
+    }
+
+    const mine = (data.clients || []).find((client) => client.id === myId);
+
+    myOut = mine ? mine.out : null;
   });
 
   socket.on("connect", () => {
@@ -646,7 +661,11 @@ function drawStatus() {
     text("rejected: " + rejectedReason, width / 2, 14);
   } else if (joined) {
     fill(120, 220, 150);
-    text("performer " + myId, width / 2, 14);
+    text(
+      "ID: " + myId + "  CH: " + (myOut === null ? "–" : myOut),
+      width / 2,
+      14,
+    );
   } else {
     fill(200, 200, 210);
     text("connecting…", width / 2, 14);

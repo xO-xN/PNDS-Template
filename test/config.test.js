@@ -15,7 +15,10 @@ test("loadManifest reads the project manifest", () => {
   const manifest = loadManifest(PROJECT_ROOT);
 
   assert.equal(manifest.schemaVersion, 1);
-  assert.equal(manifest.audio.outputChannels, 16);
+  assert.ok(
+    Number.isInteger(manifest.audio.outputChannels) &&
+      manifest.audio.outputChannels >= 1,
+  );
   assert.notEqual(
     manifest.scoreServer.performerPort,
     manifest.scoreServer.monitorPort,
@@ -49,9 +52,10 @@ test("resolveOscTarget priority: env > cli > manifest", () => {
   );
 });
 
-test("resolveServerConfig returns valid distinct ports", () => {
-  const config = resolveServerConfig(loadManifest(PROJECT_ROOT));
+test("resolveServerConfig returns the manifest ports", () => {
+  const manifest = loadManifest(PROJECT_ROOT);
+  const config = resolveServerConfig(manifest);
 
-  assert.equal(config.performerPort, 6868);
-  assert.equal(config.monitorPort, 6869);
+  assert.equal(config.performerPort, manifest.scoreServer.performerPort);
+  assert.equal(config.monitorPort, manifest.scoreServer.monitorPort);
 });

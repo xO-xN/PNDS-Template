@@ -250,6 +250,20 @@ test("control from an unregistered socket is ignored", async () => {
   assert.strictEqual(audio.voices.size, 0);
 });
 
+test("set-out from an operator socket (explicit id) reassigns that client", async () => {
+  // The monitor page never joins — it names the target client instead.
+  const { audio, connect } = createHarness();
+  const performer = connect();
+
+  await performer.emit(EVENTS.join, { token: null });
+
+  const operator = connect();
+
+  await operator.emit(EVENTS.setOut, { id: 1, out: 4 });
+
+  assert.deepStrictEqual(audio.setOutChannelCalls, [{ id: 1, out: 4 }]);
+});
+
 test("set-out followed by a reconnect restores raw values with register", async () => {
   // Regression: the set-out path once persisted already-mapped values and
   // dropped the register — restoring that state double-mapped amp and
