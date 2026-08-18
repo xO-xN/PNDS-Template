@@ -1,11 +1,11 @@
 // PNDS Template — score server entry point.
 //
-// Orchestrates the reusable core (lib/) and the work layer (audio/controller.js):
+// Composition root: wires the reusable core (lib/) to the work layer
+// (audio/controller.js):
 // - serves performer + monitor pages from public/ on both ports
 // - exposes /__pnds/health on both ports
-// - assigns client ids, restores them on reconnect (claim token)
-// - forwards fader controls to the audio layer
-// - broadcasts client state to the monitor page
+// - attaches the performer protocol (join / claim / restore / control —
+//   lib/protocol.js owns the semantics)
 // - shuts down cleanly on SIGINT / SIGTERM
 
 const path = require("node:path");
@@ -25,6 +25,7 @@ const { HealthTracker } = require("./lib/health");
 const { AudioEngine } = require("./lib/audio-engine");
 const { PlayerRegistry } = require("./lib/players");
 const { qrHandler } = require("./lib/qr");
+const { attachProtocol } = require("./lib/protocol");
 const { ProjectAudio } = require("./audio/controller");
 const {
   attachShutdown,
@@ -33,7 +34,6 @@ const {
 const shared = require("./public/shared");
 
 const PROJECT_ROOT = __dirname;
-const { events: EVENTS } = shared;
 
 // ------------------------------------------------------------
 // Configuration
@@ -111,10 +111,6 @@ const registry = new PlayerRegistry({
   maxClients: audioEngine.outputChannels,
 });
 
-// Last known controls per claim token, restored when a client reconnects.
-// (Ids are reused after a disconnect; the token is the persistent identity.)
-const lastControls = new Map();
-
 // ------------------------------------------------------------
 // Startup
 // ------------------------------------------------------------
@@ -172,148 +168,14 @@ async function startAudio() {
 startAudio();
 
 // ------------------------------------------------------------
-// Socket.IO protocol
+// Socket.IO protocol (lib/protocol.js owns the semantics)
 // ------------------------------------------------------------
 
-io.on("connection", (socket) => {
-  socket.on(EVENTS.join, async (payload) => {
-    const result = registry.allocate({
-      socketId: socket.id,
-      claimToken: payload && payload.token,
-    });
-
-    if (result.status === "rejected") {
-      socket.emit(EVENTS.rejected, {
-        reason: result.message,
-      });
-      socket.disconnect(true);
-      return;
-    }
-
-    try {
-      if (!projectAudio.voices.has(result.id)) {
-        await projectAudio.addVoice(result.id);
-      }
-
-      // State recovery is keyed by the persistent claim token, not the id:
-      // ids are reused after a disconnect, the token is the identity.
-      const last = lastControls.get(result.token);
-
-      if (last) {
-        await projectAudio.setControls(result.id, last);
-        await projectAudio.setOutChannel(result.id, last.out);
-      }
-
-      socket.emit(EVENTS.joined, {
-        id: result.id,
-        token: result.token,
-        recovered: Boolean(last),
-      });
-
-      broadcastState();
-    } catch (error) {
-      console.error(`[server] failed to create voice for client ${result.id}:`, error);
-      registry.release(result.id);
-      socket.emit(EVENTS.rejected, {
-        reason: "Audio voice could not be created.",
-      });
-      socket.disconnect(true);
-    }
-  });
-
-  socket.on(EVENTS.control, async (payload) => {
-    const id = registry.findIdBySocket(socket.id);
-
-    if (id === null) {
-      return;
-    }
-
-    try {
-      await projectAudio.setControls(id, {
-        amp: payload && payload.amp,
-        freq: payload && payload.freq,
-        range: payload && payload.range,
-      });
-
-      const voice = projectAudio.voices.get(id);
-      const token = registry.getTokenBySocket(socket.id);
-
-      if (voice && token) {
-        lastControls.set(token, {
-          amp: voice.rawAmp,
-          freq: voice.rawFreq,
-          range: voice.register,
-          out: voice.out,
-        });
-      }
-
-      broadcastState();
-    } catch (error) {
-      console.error(`[server] control failed for client ${id}:`, error);
-    }
-  });
-
-  socket.on(EVENTS.setOut, async (payload) => {
-    const id = registry.findIdBySocket(socket.id);
-
-    if (id === null || !payload || payload.out === undefined) {
-      return;
-    }
-
-    try {
-      await projectAudio.setOutChannel(id, payload.out);
-
-      const voice = projectAudio.voices.get(id);
-      const token = registry.getTokenBySocket(socket.id);
-
-      if (voice && token) {
-        lastControls.set(token, {
-          amp: voice.amp,
-          freq: voice.freq,
-          out: voice.out,
-        });
-      }
-
-      broadcastState();
-    } catch (error) {
-      console.error(`[server] set-out failed for client ${id}:`, error);
-    }
-  });
-
-  socket.on("disconnect", () => {
-    const released = registry.releaseBySocket(socket.id);
-
-    if (!released) {
-      return;
-    }
-
-    const voice = projectAudio.voices.get(released.id);
-
-    if (voice) {
-      lastControls.set(released.claimToken, {
-        amp: voice.rawAmp,
-        freq: voice.rawFreq,
-        range: voice.register,
-        out: voice.out,
-      });
-    }
-
-    projectAudio
-      .removeVoice(released.id)
-      .catch((error) => {
-        console.error(`[server] failed to release voice for client ${released.id}:`, error);
-      })
-      .finally(() => {
-        broadcastState();
-      });
-  });
+attachProtocol(io, {
+  events: shared.events,
+  registry,
+  projectAudio,
 });
-
-function broadcastState() {
-  io.emit(EVENTS.state, {
-    clients: projectAudio.snapshot(),
-  });
-}
 
 // ------------------------------------------------------------
 // Shutdown

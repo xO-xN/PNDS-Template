@@ -187,6 +187,40 @@ class ProjectAudio {
     }
   }
 
+  hasVoice(id) {
+    return this.voices.has(id);
+  }
+
+  // Persistable voice state keyed by claim token: the raw fader values
+  // plus register and output channel. voiceState()/restoreVoice() are the
+  // single owner of the reconnect-restore shape.
+  voiceState(id) {
+    const voice = this.voices.get(id);
+
+    if (!voice) {
+      return null;
+    }
+
+    return {
+      amp: voice.rawAmp,
+      freq: voice.rawFreq,
+      range: voice.register,
+      out: voice.out,
+    };
+  }
+
+  // Restore a persisted voiceState(): re-map the raw values. Feeding
+  // already-mapped values here would map them twice (see setControls).
+  async restoreVoice(id, state) {
+    await this.setControls(id, {
+      amp: state.amp,
+      freq: state.freq,
+      range: state.range,
+    });
+
+    await this.setOutChannel(id, state.out);
+  }
+
   async removeVoice(id) {
     const voice = this.voices.get(id);
 
