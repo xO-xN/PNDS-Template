@@ -53,5 +53,5 @@
 ```sh
 npm run check   # 全部 JS 语法检查
 npm test        # node --test（config / audio 契约 / players）
-npm run build:synthdef   # 重新编译 SynthDef
+PNDS App → Settings → Developer Tools → Compile SynthDef   # 重新编译 SynthDef
 ```

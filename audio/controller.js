@@ -20,7 +20,7 @@ const {
   defaultRegister,
 } = require("../public/shared");
 
-const SYNTH_NAME = "templateSine";
+const SYNTH_NAME = "template-sine";
 const GROUP_ID = 1000;
 const NODE_BASE = 1000;
 // Single source of truth: the same freqRange the performer page displays

@@ -2,7 +2,11 @@
 //
 // Run this file in the SuperCollider IDE to register the SynthDef locally
 // (needed when debugging the external bridge with sclang). To compile the
-// runtime artifact, run build-synthdef.scd (or `npm run build:synthdef`).
+// runtime artifact, use PNDS App → Settings → Developer Tools → Compile
+// SynthDef, or run sclang on this file yourself.
+//
+// Naming contract: SynthDef name = artifact file name = manifest reference
+// ('template-sine'). Dashed names need the quoted symbol form 'like-this'.
 //
 // Voice contract:
 // - out:     first output bus of the voice (set by the score server)
@@ -12,7 +16,7 @@
 // - lagAmp / lagFreq: smoothing times in seconds (scsynth Lag.kr), so
 //            fader movements glide instead of stepping.
 
-SynthDef(\templateSine, {
+SynthDef('template-sine', {
     | out = 0, amp = 0, freq = 100, lagAmp = 0.05, lagFreq = 0.1 |
     var smoothAmp = Lag.kr(amp, lagAmp);
     var smoothFreq = Lag.kr(freq, lagFreq);

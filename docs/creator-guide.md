@@ -40,7 +40,7 @@ npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
 
 - 演奏者界面：**手机横屏**触摸；竖屏时提示旋转。左半屏是 **FREQ 推子**（音高），右半屏是 **AMP 推子**（音量）。
 - 推子值经 Socket.IO 发到 score server，由 server 转为 OSC 控制 SuperCollider。
-- 每个加入的客户端获得一个 sine voice（一个 `templateSine` synth）。
+- 每个加入的客户端获得一个 sine voice（一个 `template-sine` synth）。
 - FREQ 推子映射频率在 `public/shared.js` 的 `freqRange` 定义（**单一事实来源**）：performer 页面用它显示 Hz，server 的 `audio/controller.js` 从同一对象读取并映射为 OSC 频率，改一处两边同步。
 - FREQ 推子带**音高参考刻度**：范围内每个半音一小格（19 格），只标 3 个音名（中心音及其上下五度），这 3 格的刻度用**更亮的颜色**区分；范围两端不在音高上，不设刻度。刻度数据在 `public/shared.js` 的 `freqTicks`（单一事实来源）。
 - **三档音区 switch**（居中，位于状态文字下方）：`1`（低音）/ `2`（中音）/ `3`（高音），切换左侧 FREQ 推子的频率区段。推子位置不变，Hz 映射随音区改变（server 按同一音区映射）。音区数据在 `public/shared.js` 的 `registers`（单一事实来源）：每区都是同样的 19 半音结构，中心音分别为 **E6 / A5 / D5**（相邻区中心相差 7 半音；整体比原 1000–3000 Hz 低一个五度），标注音名分别为 A-E-B / D-A-E / G-D-A——**每区的标注音 = 上一区整体下移一个五度**（中心音即上一区的下五度）。
@@ -76,9 +76,8 @@ public/                   浏览器端（performer + monitor 双角色单页）
   style.css
   libraries/p5.min.js     p5 库（本地文件，演出离线可用）
 supercollider/
-  source/                 SynthDef 创作源码（.scd）
+  source/                 SynthDef 创作源码（.scd）——唯一事实源
     template-sine.scd     本模板的 sine voice 定义
-    build-synthdef.scd    编译脚本：.scd → .scsyndef
   debug/                  External debug bridge（创作期工具）
   synthdefs/              已编译 .scsyndef（运行时 artifact，manifest 引用）
 test/                     node --test 回归测试
@@ -110,14 +109,12 @@ docs/                     本指南与交接文档
 
 ## 声音：编辑与编译 SynthDef
 
-`.scd` 是创作期源码，`.scsyndef` 是运行时 artifact。改完 `.scd` 后必须重新编译，否则 App 加载的是旧声音：
+`.scd` 是创作期源码与唯一事实源，`.scsyndef` 是运行时 artifact。改完 `.scd` 后必须重新编译，否则 App 加载的是旧声音：
 
-```sh
-npm run build:synthdef
-# 等价于: sclang supercollider/source/build-synthdef.scd
-```
+- 在 PNDS App 中打开本工程，`Settings → Developer Tools → Compile SynthDef`（使用本机安装的 SuperCollider）；
+- 或在本机自行运行 sclang。
 
-编译产物写入 `supercollider/synthdefs/template-sine.scsyndef`。
+编译契约：**SynthDef 符号名 = 产物文件名 = manifest 引用**（本模板为 `template-sine`；带连字符的名字在 .scd 中须写作 `'template-sine'` 引号符号形式）。编译产物写入 `supercollider/synthdefs/template-sine.scsyndef`，App 会在编译后逐个校验 manifest 引用的产物。
 
 ## 音频模式
 

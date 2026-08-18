@@ -10,7 +10,7 @@
 //   /c<id>/freq [100..3000]
 //   /c<id>/out  [1..16]
 //
-// Requires the templateSine SynthDef: first run supercollider/source/
+// Requires the 'template-sine' SynthDef: first run supercollider/source/
 // template-sine.scd in this IDE session.
 //
 // The bridge is not part of the PNDS runtime: Internal mode only loads the
@@ -22,7 +22,7 @@ s.waitForBoot {
     var synths = Array.fill(maxClients, { nil });
     var ensureSynth = { |id|
         if (synths[id - 1].isNil) {
-            synths[id - 1] = Synth(\templateSine, [\out, id - 1]);
+            synths[id - 1] = Synth('template-sine', [\out, id - 1]);
         };
     };
     var idFromAddress = { |address|
