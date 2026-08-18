@@ -2,9 +2,10 @@
 // against a fake ProjectAudio, a real PlayerRegistry and a fake Socket.IO
 // — no process spawn, no UDP.
 //
-// The fake mirrors the real ProjectAudio contract: it stores raw fader
-// values and exposes mapped ones (amp = raw²), so any double-mapping in
-// the restore path is detectable.
+// The fake mirrors the real ProjectAudio contract: addVoice accepts the
+// persisted state and births the voice with it (raw fader values, mapped
+// amp = raw²), so any double-mapping or restore-after-birth in the
+// protocol is detectable.
 
 const { test } = require("node:test");
 const assert = require("node:assert");
@@ -24,6 +25,7 @@ function clamp01(value) {
 class FakeProjectAudio {
   constructor() {
     this.voices = new Map();
+    this.addVoiceCalls = [];
     this.setControlsCalls = [];
     this.setOutChannelCalls = [];
     this.failAddVoice = false;
@@ -33,18 +35,33 @@ class FakeProjectAudio {
     return this.voices.has(id);
   }
 
-  async addVoice(id) {
+  // Mirrors the real contract: a state present at birth is applied with
+  // the voice, not restored onto it afterwards.
+  async addVoice(id, state = null) {
     if (this.failAddVoice) {
       throw new Error("synth creation failed");
     }
 
-    this.voices.set(id, {
+    const voice = {
       amp: 0,
       rawAmp: 0,
       rawFreq: 0,
       register: shared.defaultRegister,
       out: id % 2 === 1 ? 1 : 2,
-    });
+    };
+
+    if (state) {
+      voice.rawAmp = clamp01(state.amp);
+      voice.rawFreq = clamp01(state.freq);
+      voice.register = [1, 2, 3].includes(Number(state.range))
+        ? Number(state.range)
+        : shared.defaultRegister;
+      voice.amp = voice.rawAmp ** 2;
+      voice.out = state.out;
+    }
+
+    this.voices.set(id, voice);
+    this.addVoiceCalls.push({ id, state: state ?? null });
   }
 
   async setControls(id, { amp, freq, range }) {
@@ -288,16 +305,49 @@ test("set-out followed by a reconnect restores raw values with register", async 
   assert.strictEqual(joined.payload.recovered, true);
   assert.strictEqual(joined.payload.id, 1);
 
-  // The restore must re-feed the raw fader values and the register.
-  assert.deepStrictEqual(audio.setControlsCalls.at(-1), {
+  // The reconnect must birth the voice with the persisted raw state —
+  // not create a default voice and mutate it afterwards (audible
+  // intermediate state on the default channel).
+  assert.deepStrictEqual(audio.addVoiceCalls.at(-1), {
     id: 1,
+    state: { amp: 0.5, freq: 0.5, range: 2, out: 3 },
+  });
+  assert.deepStrictEqual(audio.setControlsCalls.length, 1); // only the live control
+  assert.deepStrictEqual(audio.setOutChannelCalls.length, 1); // only the live set-out
+
+  // And the restored voice reports the same raw state back.
+  assert.deepStrictEqual(audio.voiceState(1), {
     amp: 0.5,
     freq: 0.5,
     range: 2,
-  });
-  assert.deepStrictEqual(audio.setOutChannelCalls.at(-1), {
-    id: 1,
     out: 3,
+  });
+});
+
+test("a recovered join with the voice still alive re-feeds it via restoreVoice", async () => {
+  // A takeover reconnect can arrive before the old socket's disconnect
+  // handler freed the voice — then the voice is restored in place.
+  const { audio, connect } = createHarness();
+  const connection = connect();
+
+  await connection.emit(EVENTS.join, { token: null });
+
+  const { token } = connection.sent.find((m) => m.event === EVENTS.joined)
+    .payload;
+
+  await connection.emit(EVENTS.control, { amp: 0.7, freq: 0.2, range: 1 });
+
+  const setControlsBefore = audio.setControlsCalls.length;
+
+  await connection.emit(EVENTS.join, { token }); // duplicate join, voice alive
+
+  assert.strictEqual(audio.addVoiceCalls.length, 1);
+  assert.strictEqual(audio.setControlsCalls.length, setControlsBefore + 1);
+  assert.deepStrictEqual(audio.setControlsCalls.at(-1), {
+    id: 1,
+    amp: 0.7,
+    freq: 0.2,
+    range: 1,
   });
 });
 
@@ -327,4 +377,5 @@ test("a join with an unknown token starts from defaults", async () => {
 
   assert.strictEqual(joined.payload.recovered, false);
   assert.deepStrictEqual(audio.setControlsCalls, []);
+  assert.deepStrictEqual(audio.addVoiceCalls.at(-1).state, null);
 });

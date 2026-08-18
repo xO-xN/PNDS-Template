@@ -10,9 +10,6 @@
 // - The monitor page can reassign any client to another output channel.
 // - Each voice is capped at -6 dB in the SynthDef (amp * 0.5).
 
-const {
-  AudioEngine,
-} = require("../lib/audio-engine");
 const { oscFloat } = require("../lib/osc-transport");
 const {
   freqRange,
@@ -70,6 +67,17 @@ function defaultOutChannel(id) {
   return id % 2 === 1 ? 1 : 2;
 }
 
+// Map raw fader values (0..1) onto a voice record. Single owner of the
+// raw→mapped mapping: addVoice(…, state) and setControls feed through
+// here, so birth-with-state and live control cannot drift apart.
+function applyControls(voice, { amp, freq, range }) {
+  voice.register = resolveRegister(range);
+  voice.rawAmp = clamp01(amp);
+  voice.rawFreq = clamp01(freq);
+  voice.amp = mapAmp(voice.rawAmp);
+  voice.freq = mapFreq(voice.rawFreq, voice.register);
+}
+
 function validateOutChannel(channel, outputChannels) {
   const value = Number(channel);
 
@@ -87,11 +95,10 @@ function validateOutChannel(channel, outputChannels) {
 }
 
 class ProjectAudio {
+  // The engine only needs to satisfy the engine interface (mode,
+  // outputChannels, outputBus and the command methods) — no class check,
+  // so tests and alternate engines slot in at this seam.
   constructor(engine) {
-    if (!(engine instanceof AudioEngine)) {
-      throw new Error("ProjectAudio requires an AudioEngine instance.");
-    }
-
     this.engine = engine;
     this.voices = new Map(); // id -> { nodeId, amp, freq, out }
   }
@@ -109,7 +116,11 @@ class ProjectAudio {
     }
   }
 
-  async addVoice(id) {
+  // A state (the shape voiceState() returns) births the voice already
+  // restored — one /s_new or one message burst carries the correct
+  // values. A default birth followed by restore would pass through
+  // audible intermediate states (restored amp on the default channel).
+  async addVoice(id, state = null) {
     const voice = {
       nodeId: NODE_BASE + id,
       amp: 0,
@@ -119,6 +130,11 @@ class ProjectAudio {
       register: defaultRegister,
       out: defaultOutChannel(id),
     };
+
+    if (state) {
+      applyControls(voice, state);
+      voice.out = validateOutChannel(state.out, this.engine.outputChannels);
+    }
 
     if (this.engine.mode === "internal") {
       await this.engine.createSynth({
@@ -150,11 +166,7 @@ class ProjectAudio {
     // Keep the raw fader values (0..1) so a reconnect can restore the
     // voice by re-mapping them (setControls must not be fed already-mapped
     // values — that would map them twice).
-    voice.register = resolveRegister(range);
-    voice.rawAmp = clamp01(amp);
-    voice.rawFreq = clamp01(freq);
-    voice.amp = mapAmp(voice.rawAmp);
-    voice.freq = mapFreq(voice.rawFreq, voice.register);
+    applyControls(voice, { amp, freq, range });
 
     if (this.engine.mode === "internal") {
       await this.engine.setControls(voice.nodeId, {

@@ -50,7 +50,7 @@ npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
 - 客户端上限 = 输出声道数（manifest 默认 16；App 注入 `PNDS_AUDIO_OUTPUT_CHANNELS` 时以注入值为准）；满员时新客户端被拒绝。
 - 默认声道：**奇数 id → 声道 1，偶数 id → 声道 2**（相对 `PNDS_AUDIO_OUTPUT_BUS`）。
 - Monitor 端可把任意客户端的输出声道改为 1..N（N = server 实际解析的输出声道数，经 `__config.js` 注入浏览器，与 server 校验同源）；允许重叠。Monitor 页下方显示 **performer 页面的 QR 码**（`GET /qr`，由 `lib/qr.js` 生成）。
-- 客户端断开后，重连（同一浏览器，token 保存在 localStorage）会**恢复原 id 与最后推子状态**。
+- 客户端断开后，重连（同一浏览器，token 保存在 localStorage）会**恢复原 id 与最后推子状态**；恢复**一次到位**——voice 直接以持久化状态创建（单条 `/s_new` 携带正确的音量/频率/声道），不经过默认值中间态，锁屏重连不会在错误声道出声。
 - Performer 状态行显示 **`ID: N CH: N`**：CH 来自 state 广播，monitor 端改道后实时更新。
 - score server 的终端日志记录协议生命周期（join / disconnect / rejected）——现场排查"幽灵客户端"循环重连时看这里。
 

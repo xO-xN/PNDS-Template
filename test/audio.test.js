@@ -1,11 +1,13 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const path = require("node:path");
 
 const {
   AudioEngine,
   resolveOutputBus,
   resolveOutputChannels,
 } = require("../lib/audio-engine");
+const { oscFloat } = require("../lib/osc-transport");
 const {
   mapFreq,
   mapAmp,
@@ -127,4 +129,129 @@ test("validateOutChannel rejects out-of-range channels", () => {
   assert.throws(() => validateOutChannel(0, 16));
   assert.throws(() => validateOutChannel(17, 16));
   assert.throws(() => validateOutChannel("x", 16));
+});
+
+// ------------------------------------------------------------
+// Engine commands through an injected (recording) transport — no
+// scsynth, no UDP; asserts the boot sequence and scsynth encoding.
+// ------------------------------------------------------------
+
+class FakeTransport {
+  constructor() {
+    this.sent = [];
+    this.closed = false;
+    this.nextSyncId = 1;
+  }
+
+  async start() {}
+
+  async send(address, ...args) {
+    this.sent.push({ address, args });
+  }
+
+  // The request-style helpers go through send(), like the real transport.
+  async status() {
+    await this.send("/status");
+    return { address: "/status.reply" };
+  }
+
+  async loadSynthDef(filePath) {
+    await this.send("/d_load", filePath);
+    return { address: "/done" };
+  }
+
+  async sync() {
+    const syncId = this.nextSyncId;
+    this.nextSyncId += 1;
+    await this.send("/sync", { type: "integer", value: syncId });
+    return { address: "/synced" };
+  }
+
+  async close() {
+    this.closed = true;
+  }
+}
+
+function plain(argument) {
+  return argument && argument.value !== undefined ? argument.value : argument;
+}
+
+function createEngine({ mode = "internal" } = {}) {
+  const transport = new FakeTransport();
+  const engine = new AudioEngine({
+    mode,
+    target: "127.0.0.1:57110",
+    projectRoot: path.join(__dirname, ".."),
+    manifest: {
+      audio: { synthdefs: ["supercollider/synthdefs/template-sine.scsyndef"] },
+    },
+    environment: {},
+    transportFactory: () => transport,
+  });
+
+  return { engine, transport };
+}
+
+test("internal boot pings status, loads each synthdef, then syncs", async () => {
+  const { engine, transport } = createEngine();
+
+  await engine.start();
+
+  assert.deepEqual(
+    transport.sent.map((m) => m.address),
+    ["/status", "/d_load", "/sync"],
+  );
+  assert.equal(
+    transport.sent[1].args[0],
+    path.join(__dirname, "..", "supercollider/synthdefs/template-sine.scsyndef"),
+  );
+});
+
+test("engine commands encode the scsynth argument order", async () => {
+  const { engine, transport } = createEngine();
+
+  await engine.createGroup(1000);
+  await engine.createSynth({
+    name: "template-sine",
+    nodeId: 1001,
+    groupId: 1000,
+    out: 3,
+    controls: { amp: 0.25, freq: 440 },
+  });
+  await engine.setControls(1001, { amp: 0.5 });
+  await engine.freeNode(1001);
+
+  assert.deepEqual(
+    transport.sent.map((m) => [m.address, ...m.args.map(plain)]),
+    [
+      ["/status"],
+      ["/d_load", path.join(__dirname, "..", "supercollider/synthdefs/template-sine.scsyndef")],
+      ["/sync", 1],
+      ["/g_new", 1000, 1, 0],
+      ["/s_new", "template-sine", 1001, 1, 1000, "out", 3, "amp", 0.25, "freq", 440],
+      ["/n_set", 1001, "amp", 0.5],
+      ["/n_free", 1001],
+    ],
+  );
+});
+
+test("stop() closes the injected transport", async () => {
+  const { engine, transport } = createEngine();
+
+  await engine.start();
+  await engine.stop();
+
+  assert.equal(transport.closed, true);
+});
+
+test("external send passes the work OSC message through", async () => {
+  const { engine, transport } = createEngine({ mode: "external" });
+
+  await engine.start();
+  await engine.send("/c1/amp", [oscFloat(0.25)]);
+  await engine.stop(); // leave no transport (socket) behind
+
+  assert.deepEqual(transport.sent, [
+    { address: "/c1/amp", args: [{ type: "float", value: 0.25 }] },
+  ]);
 });
