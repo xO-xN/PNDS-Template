@@ -252,7 +252,13 @@ test("score server: health, join, control, set-out, reconnect, pages", async (t)
     (state) => state.clients.length === 2 && state.clients[1].id === 2,
   );
 
-  assert.equal(secondState.clients[1].freq, freqRange.min); // freqValue 0 → freqRange.min
+  // The join broadcast carries the birth default and the control
+  // broadcast the mapped raw-0 — both are mapFreq(0), so the assertion
+  // holds whichever lands first (they can coalesce into one TCP frame).
+  assert.equal(
+    secondState.clients[1].freq,
+    Math.round(freqRange.min),
+  ); // freqValue 0 → register 3 min, rounded by mapFreq
   assert.equal(secondState.clients[1].out, 2); // even id -> channel 2
 
   // --- register 1 for the second client ---

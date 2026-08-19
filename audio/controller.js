@@ -141,7 +141,10 @@ class ProjectAudio {
     const voice = {
       nodeId: NODE_BASE + id,
       amp: 0,
-      freq: FREQ_MIN,
+      // The default birth freq goes through mapFreq like every other
+      // freq: an untouched voice must report exactly what a raw-0 fader
+      // maps to (rounded), not the unrounded band minimum.
+      freq: mapFreq(0),
       rawAmp: 0,
       rawFreq: 0,
       register: defaultRegister,

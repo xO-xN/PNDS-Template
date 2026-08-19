@@ -73,7 +73,9 @@ test("addVoice births an internal voice silent on its default channel", async ()
 
   assert.strictEqual(synth.out, 0); // engine.outputBus + channel 1 - 1
   assert.strictEqual(synth.controls.amp, 0);
-  assert.strictEqual(synth.controls.freq, FREQ_MIN);
+  // The untouched voice reports the mapped raw-0 freq (rounded), not the
+  // unrounded band minimum — mapFreq is the single raw→Hz owner.
+  assert.strictEqual(synth.controls.freq, Math.round(FREQ_MIN));
 
   // The /s_new is proven by a read-back, not trusted fire-and-forget.
   assert.deepStrictEqual(engine.verified, [{ nodeId: 1001, control: "amp" }]);
