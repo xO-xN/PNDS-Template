@@ -55,6 +55,11 @@ const FADER_BOTTOM_X = 0.4; // bottom end distance from the center
 const FADER_BOTTOM_Y = 0.85;
 const FADER_BULGE = 0.1; // arc height = 10% of the chord length (~38 px)
 const TRACK_WEIGHT = 36;
+// A touch grabs a fader only within this distance of the arc. The radial
+// projection itself accepts the whole screen (any point has an angle), so
+// without this gate a stray thumb — e.g. while reaching for the register
+// switch — yanked the nearest fader from far outside the visible track.
+const GRAB_RADIUS = 60;
 const KNOB_RADIUS = 36; // knob diameter (p5 circle() takes a diameter)
 const CURVE_STEPS = 60; // arc sampling resolution for rendering
 const VALUE_OFFSET = 30; // value chip inset from the knob, away from the thumb
@@ -199,7 +204,8 @@ function sampleArc(arc) {
 }
 
 // Projects (x, y) radially onto the arc's circle. Returns
-// { value (0..1), dist (px to the circle), x, y (projected point) }.
+// { value (0..1), dist (px to the arc itself — beyond an end it measures
+// to the end point), x, y (projected point) }.
 function projectOnArc(x, y, side) {
   const arc = faderArc(side);
   const d = Math.hypot(x - arc.x, y - arc.y) || 1;
@@ -238,26 +244,34 @@ function projectOnArc(x, y, side) {
 
   const clamped = constrain(value, 0, 1);
   const thetaC = arc.aBottom + clamped * arc.sweep;
-
-  return {
-    value: clamped,
-    dist: Math.abs(d - arc.r),
+  const point = {
     x: arc.x + arc.r * Math.cos(thetaC),
     y: arc.y + arc.r * Math.sin(thetaC),
   };
+
+  return {
+    value: clamped,
+    dist: Math.hypot(x - point.x, y - point.y),
+    x: point.x,
+    y: point.y,
+  };
 }
 
-// The two arcs meet near the bottom center; assign each touch to the arc
-// it is closer to.
+// The arc a touch grabs, or null when the touch is beyond GRAB_RADIUS of
+// both arcs — the rest of the screen is not a fader.
 function sideForPoint(x, y) {
   const left = projectOnArc(x, y, "left");
   const right = projectOnArc(x, y, "right");
+
+  if (left.dist > GRAB_RADIUS && right.dist > GRAB_RADIUS) {
+    return null;
+  }
 
   return left.dist <= right.dist ? "left" : "right";
 }
 
 // String-instrument roles: the left hand picks pitch, the right hand tone.
-function setFaderFromPoint(side, x, y) {
+function setFader(side, x, y) {
   const { value } = projectOnArc(x, y, side);
 
   if (side === "left") {
@@ -296,9 +310,16 @@ function registerAtPoint(x, y) {
     return null;
   }
 
-  const index = Math.floor(
-    (x - bounds.x) / (SWITCH_SEGMENT_WIDTH + SWITCH_GAP),
-  );
+  const local = x - bounds.x;
+  const cell = SWITCH_SEGMENT_WIDTH + SWITCH_GAP;
+
+  // The gaps between segments are not buttons — a sloppy tap there must
+  // not switch the register.
+  if (local % cell >= SWITCH_SEGMENT_WIDTH) {
+    return null;
+  }
+
+  const index = Math.floor(local / cell);
 
   return index >= 0 && index <= 2 ? index + 1 : null;
 }
@@ -306,6 +327,12 @@ function registerAtPoint(x, y) {
 // Tap targets that started on the switch stay on it for the whole gesture,
 // so a drag on the switch cannot yank a fader.
 const switchTouchIds = new Set();
+
+// Likewise, a touch that has grabbed a fader stays on that fader for the
+// whole gesture: the grab radius only gates NEW touches, so a drag that
+// overshoots the arc's end keeps controlling the fader instead of letting
+// go mid-gesture.
+const faderTouchIds = new Map();
 
 // ------------------------------------------------------------
 // Input
@@ -323,7 +350,12 @@ function touchStarted() {
       switchTouchIds.add(touch.id);
       register = segment;
     } else {
-      setFaderFromPoint(sideForPoint(touch.x, touch.y), touch.x, touch.y);
+      const side = sideForPoint(touch.x, touch.y);
+
+      if (side !== null) {
+        faderTouchIds.set(touch.id, side);
+        setFader(side, touch.x, touch.y);
+      }
     }
   }
 
@@ -341,7 +373,12 @@ function touchMoved() {
       continue;
     }
 
-    setFaderFromPoint(sideForPoint(touch.x, touch.y), touch.x, touch.y);
+    const side = faderTouchIds.get(touch.id) ?? sideForPoint(touch.x, touch.y);
+
+    if (side !== null) {
+      faderTouchIds.set(touch.id, side);
+      setFader(side, touch.x, touch.y);
+    }
   }
 
   sendIfChanged();
@@ -351,6 +388,7 @@ function touchMoved() {
 function touchEnded() {
   for (const touch of touches) {
     switchTouchIds.delete(touch.id);
+    faderTouchIds.delete(touch.id);
   }
 
   return false;
@@ -377,7 +415,12 @@ function mouseDragged() {
     return false;
   }
 
-  setFaderFromPoint(sideForPoint(mouseX, mouseY), mouseX, mouseY);
+  const side = sideForPoint(mouseX, mouseY);
+
+  if (side !== null) {
+    setFader(side, mouseX, mouseY);
+  }
+
   sendIfChanged();
   return false;
 }
