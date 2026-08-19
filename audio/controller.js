@@ -153,7 +153,15 @@ class ProjectAudio {
 
     if (state) {
       applyControls(voice, state);
-      voice.out = validateOutChannel(state.out, this.engine.outputChannels);
+
+      // A persisted out the current engine can't route (the channel
+      // count changed between runs) falls back to the default instead of
+      // rejecting the device — the seat record heals on the next persist.
+      try {
+        voice.out = validateOutChannel(state.out, this.engine.outputChannels);
+      } catch {
+        voice.out = defaultOutChannel(id);
+      }
     }
 
     if (this.engine.mode === "internal") {

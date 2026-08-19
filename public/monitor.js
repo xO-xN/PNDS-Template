@@ -2,8 +2,10 @@
 //
 // Listens to the score server and draws every joined performer (id, amp,
 // freq, output channel), centered on screen. The operator can reassign each
-// client's output channel with a select. A QR code for the performer page
-// sits below the table.
+// client's output channel with a select, and reset every device's seat
+// assignment (id + channel) with the top-right button — the server wipes
+// its seat records and the performers rejoin with fresh ids. A QR code for
+// the performer page sits below the table.
 
 const P = window.PNDS;
 
@@ -19,6 +21,7 @@ const client = window.PNDSClient.connectMonitor({
 let clients = [];
 let selects = []; // p5 select elements, rebuilt when the client set changes
 let qrImage = null;
+let resetButton = null;
 
 const TABLE_WIDTH = 560;
 const HEADER_HEIGHT = 44;
@@ -26,6 +29,7 @@ const ROW_HEIGHT = 52;
 const QR_SIZE = 150;
 const QR_SPACE = QR_SIZE + 24;
 const SELECT_WIDTH = 64;
+const RESET_WIDTH = 96;
 
 client.onClients((next) => {
   const idsChanged =
@@ -45,12 +49,52 @@ function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
   canvas.parent("stage");
   qrImage = createImg("/qr", "QR code for the performer page");
+  createResetButton();
   rebuildSelects();
 }
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   layoutSelects();
+  layoutResetButton();
+}
+
+// ------------------------------------------------------------
+// Seat reset
+// ------------------------------------------------------------
+
+function createResetButton() {
+  resetButton = createButton("重配 ID");
+  resetButton.mousePressed(requestResetIds);
+  resetButton.style("background", "#22262f");
+  resetButton.style("color", "#e8ecf4");
+  resetButton.style("border", "1px solid #3a4050");
+  resetButton.style("border-radius", "6px");
+  resetButton.style("padding", "6px 12px");
+  resetButton.style("font-size", "14px");
+  resetButton.style("width", RESET_WIDTH + "px");
+  layoutResetButton();
+}
+
+// The server wipes every seat record and bounces the performers, who
+// rejoin with fresh ids in rejoin order. Channel assignments go with
+// them — reset means a new lineup, where the old channels are meaningless.
+function requestResetIds() {
+  if (
+    !window.confirm(
+      "重配所有设备的演奏序号？每台设备将重新拿到新的序号，声道分配也会重置。",
+    )
+  ) {
+    return;
+  }
+
+  client.resetIds();
+}
+
+function layoutResetButton() {
+  if (resetButton) {
+    resetButton.position(width - RESET_WIDTH - 16, 14);
+  }
 }
 
 // ------------------------------------------------------------

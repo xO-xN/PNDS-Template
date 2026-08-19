@@ -2,6 +2,8 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { spawn } = require("node:child_process");
 const net = require("node:net");
+const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const { io } = require("socket.io-client");
@@ -153,15 +155,32 @@ async function assertPortsFree() {
   }
 }
 
-test("score server: health, join, control, set-out, reconnect, pages", async (t) => {
+test("score server: health, join, control, set-out, reconnect, restart seats, reset-ids, pages", async (t) => {
   await assertPortsFree();
 
-  const server = spawn(process.execPath, ["server.js", "--audio-mode", "none"], {
-    cwd: PROJECT_ROOT,
-    stdio: "ignore",
+  // Seat records survive a restart via this file — both server spawns
+  // below share it, which is exactly what reopening a work does.
+  const seatsFile = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "pnds-seats-e2e-")),
+    "seats.json",
+  );
+
+  const spawnServer = () =>
+    spawn(process.execPath, ["server.js", "--audio-mode", "none"], {
+      cwd: PROJECT_ROOT,
+      stdio: "ignore",
+      env: { ...process.env, PNDS_SEATS_FILE: seatsFile },
+    });
+
+  const servers = [spawnServer()];
+
+  t.after(() => {
+    for (const server of servers) {
+      server.kill("SIGTERM");
+    }
   });
 
-  t.after(() => server.kill("SIGTERM"));
+  const server = servers[0];
 
   const health = await waitForHealthReady();
 
@@ -372,6 +391,72 @@ test("score server: health, join, control, set-out, reconnect, pages", async (t)
 
   assert.ok(await waitForCondition(() => reloaded.joined));
   assert.equal(reloaded.myId, 3);
+
+  // --- restart: a reopened work hands the device back its seat and CH ---
+  // The seat file is the only state that crosses the restart: the token
+  // reclaims id 3 with channel 6 (set by the operator above), while the
+  // fader state (amp/freq) starts from zero — in-memory by design.
+  reloaded.close();
+  monitorClient.close();
+
+  await new Promise((resolve) => {
+    const timer = setTimeout(resolve, 5000);
+    server.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    server.kill("SIGTERM");
+  });
+
+  const server2 = spawnServer();
+  servers.push(server2);
+
+  await waitForHealthReady();
+
+  const performerToken = clientStorage.entries.get(tokenKey);
+  const seatRejoined = await joinWithToken(performerToken);
+  t.after(() => seatRejoined.socket.close());
+
+  assert.equal(seatRejoined.data.id, 3); // the recorded seat
+  assert.equal(seatRejoined.data.recovered, false); // no in-memory state
+
+  const seatState = await waitForState(
+    seatRejoined.socket,
+    (state) =>
+      state.clients.length === 1 &&
+      state.clients[0].id === 3 &&
+      state.clients[0].out === 6,
+  );
+
+  assert.equal(seatState.clients[0].amp, 0); // fader state did not survive
+
+  // --- reset-ids: the operator wipes the seats; rejoin gets a fresh id ---
+  const resetOperator = io(PERFORMER_URL, { reconnection: false });
+  t.after(() => resetOperator.close());
+
+  await new Promise((resolve) => resetOperator.on("connect", resolve));
+
+  resetOperator.emit(EVENTS.resetIds);
+
+  // The reset's closing broadcast lists no clients — the deterministic
+  // signal that seats are cleared and performers are bounced.
+  await waitForState(
+    resetOperator,
+    (state) => state.clients.length === 0,
+  );
+
+  const freshJoin = await joinWithToken(performerToken);
+  t.after(() => freshJoin.socket.close());
+
+  assert.equal(freshJoin.data.id, 1); // no seat: smallest free id
+  assert.equal(freshJoin.data.recovered, false);
+
+  const freshState = await waitForState(
+    freshJoin.socket,
+    (state) => state.clients.length === 1 && state.clients[0].id === 1,
+  );
+
+  assert.equal(freshState.clients[0].out, 1); // odd id default channel
 
   // --- pages served on both ports ---
   const performerResponse = await fetch(`${PERFORMER_URL}/`);

@@ -72,8 +72,8 @@ test("releaseBySocket returns the assignment and frees it", () => {
 
 test("getTokenById returns the owning token, null for free ids", () => {
   // The lookup the protocol needs to persist a voice's state under its
-  // owner — regardless of which socket (e.g. the operator's) triggered
-  // the mutation.
+  // owner — regardless of which socket (e.g. the operator's) triggered the
+  // mutation.
   const registry = new PlayerRegistry({ maxClients: 2 });
   const first = registry.allocate({ socketId: "a", claimToken: null });
 
@@ -83,4 +83,66 @@ test("getTokenById returns the owning token, null for free ids", () => {
   registry.releaseBySocket("a");
 
   assert.equal(registry.getTokenById(1), null);
+});
+
+test("preferredId reclaims a recorded seat when it is free", () => {
+  // The restart-restore path: nothing live, the token's seat record says
+  // id 3, so the rejoining device gets id 3 back regardless of what
+  // nextFreeId would pick.
+  const registry = new PlayerRegistry({ maxClients: 4 });
+
+  const result = registry.allocate({
+    socketId: "a",
+    claimToken: "token-aaaaaaaaaaaaaaaaaaaaaaaa",
+    preferredId: 3,
+  });
+
+  assert.equal(result.status, "accepted");
+  assert.equal(result.id, 3);
+  assert.equal(result.token, "token-aaaaaaaaaaaaaaaaaaaaaaaa");
+});
+
+test("a live preferredId falls back to the next free id", () => {
+  // Can only happen with a hand-edited seat file, but must not hand the
+  // same id to two devices.
+  const registry = new PlayerRegistry({ maxClients: 4 });
+
+  registry.allocate({ socketId: "a", claimToken: null }); // id 1
+
+  const result = registry.allocate({
+    socketId: "b",
+    claimToken: "token-aaaaaaaaaaaaaaaaaaaaaaaa",
+    preferredId: 1, // live under another device
+  });
+
+  assert.equal(result.status, "accepted");
+  assert.equal(result.id, 2);
+});
+
+test("nextFreeId skips reserved seats", () => {
+  // A seat recorded for an absent device is not given to a newcomer.
+  const registry = new PlayerRegistry({ maxClients: 3 });
+
+  const newcomer = registry.allocate({
+    socketId: "a",
+    claimToken: null,
+    reservedIds: new Set([1]),
+  });
+
+  assert.equal(newcomer.id, 2);
+});
+
+test("rejects when every id is live or reserved", () => {
+  const registry = new PlayerRegistry({ maxClients: 2 });
+
+  registry.allocate({ socketId: "a", claimToken: null }); // id 1
+
+  const rejected = registry.allocate({
+    socketId: "b",
+    claimToken: null,
+    reservedIds: new Set([2]), // the only other id is a recorded seat
+  });
+
+  assert.equal(rejected.status, "rejected");
+  assert.match(rejected.message, /max 2/);
 });

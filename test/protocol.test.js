@@ -1,6 +1,7 @@
-// Protocol contract tests: join / claim / restore / control / set-out
-// against a fake ProjectAudio, a real PlayerRegistry and a fake Socket.IO
-// — no process spawn, no UDP.
+// Protocol contract tests: join / claim / restore / control / set-out /
+// seat persistence against a fake ProjectAudio, a real PlayerRegistry, a
+// real SeatsStore (tmp file) and a fake Socket.IO — no process spawn, no
+// UDP.
 //
 // The fake mirrors the real ProjectAudio contract: addVoice accepts the
 // persisted state and births the voice with it (raw fader values, mapped
@@ -9,8 +10,12 @@
 
 const { test } = require("node:test");
 const assert = require("node:assert");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const { PlayerRegistry } = require("../lib/players");
+const { SeatsStore } = require("../lib/seats-store");
 const { attachProtocol } = require("../lib/protocol");
 const shared = require("../public/shared");
 
@@ -133,11 +138,20 @@ class FakeProjectAudio {
   }
 }
 
-function createHarness({ maxClients = 3 } = {}) {
+function createHarness({ maxClients = 3, seatsFile } = {}) {
   const registry = new PlayerRegistry({ maxClients });
   const audio = new FakeProjectAudio();
+  const seats = new SeatsStore({
+    file:
+      seatsFile ||
+      path.join(
+        fs.mkdtempSync(path.join(os.tmpdir(), "pnds-protocol-")),
+        "seats.json",
+      ),
+  });
   const broadcasts = [];
   const io = {
+    sockets: { sockets: new Map() },
     on(event, handler) {
       assert.strictEqual(event, "connection");
       io.connection = handler;
@@ -147,7 +161,7 @@ function createHarness({ maxClients = 3 } = {}) {
     },
   };
 
-  attachProtocol(io, { events: EVENTS, registry, projectAudio: audio });
+  attachProtocol(io, { events: EVENTS, registry, projectAudio: audio, seats });
 
   let nextSocketId = 0;
 
@@ -171,6 +185,7 @@ function createHarness({ maxClients = 3 } = {}) {
     };
 
     io.connection(socket);
+    io.sockets.sockets.set(socket.id, socket);
 
     return {
       socket,
@@ -185,7 +200,7 @@ function createHarness({ maxClients = 3 } = {}) {
     };
   }
 
-  return { registry, audio, broadcasts, connect };
+  return { registry, audio, seats, broadcasts, connect };
 }
 
 test("join creates a voice, answers joined and broadcasts state", async () => {
@@ -465,4 +480,112 @@ test("a join with an unknown token starts from defaults", async () => {
   assert.strictEqual(joined.payload.recovered, false);
   assert.deepStrictEqual(audio.setControlsCalls, []);
   assert.deepStrictEqual(audio.addVoiceCalls.at(-1).state, null);
+});
+
+test("a restarted server hands a device back its seat and channel", async () => {
+  // Restart simulation: run A records the seat to a real file; run B is
+  // a fresh registry + protocol + in-memory state over the SAME file.
+  const seatsFile = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "pnds-restart-")),
+    "seats.json",
+  );
+  const runA = createHarness({ seatsFile });
+  const a = runA.connect();
+
+  await a.emit(EVENTS.join, { token: null });
+
+  const { token } = a.sent.find((m) => m.event === EVENTS.joined).payload;
+
+  await a.emit(EVENTS.setOut, { out: 4 });
+
+  const runB = createHarness({ seatsFile });
+  const b = runB.connect();
+
+  await b.emit(EVENTS.join, { token });
+
+  const joined = b.sent.find((m) => m.event === EVENTS.joined).payload;
+
+  assert.strictEqual(joined.id, 1);
+  assert.strictEqual(joined.recovered, false); // fader state is in-memory
+
+  // Birthed with the recorded channel alone — freq/amp start from zero
+  // after a restart, by design.
+  assert.deepStrictEqual(runB.audio.addVoiceCalls.at(-1).state, { out: 4 });
+  assert.strictEqual(runB.audio.voiceState(1).out, 4);
+});
+
+test("a recorded seat is not handed to a different device", async () => {
+  const { connect } = createHarness({ maxClients: 3 });
+  const device = connect();
+
+  await device.emit(EVENTS.join, { token: null });
+
+  const { token } = device.sent.find((m) => m.event === EVENTS.joined)
+    .payload;
+
+  // The device leaves: the id frees, the seat record stays.
+  await device.emit("disconnect");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const newcomer = connect();
+
+  await newcomer.emit(EVENTS.join, { token: null });
+
+  assert.strictEqual(
+    newcomer.sent.find((m) => m.event === EVENTS.joined).payload.id,
+    2,
+  );
+
+  // The original device returns later and still gets its seat.
+  const back = connect();
+
+  await back.emit(EVENTS.join, { token });
+
+  assert.strictEqual(
+    back.sent.find((m) => m.event === EVENTS.joined).payload.id,
+    1,
+  );
+});
+
+test("reset-ids clears seats, frees voices and bounces performers", async () => {
+  const { audio, registry, seats, broadcasts, connect } = createHarness({
+    maxClients: 3,
+  });
+  const first = connect();
+
+  await first.emit(EVENTS.join, { token: null });
+
+  const { token } = first.sent.find((m) => m.event === EVENTS.joined)
+    .payload;
+
+  const second = connect();
+
+  await second.emit(EVENTS.join, { token: null });
+
+  const operator = connect();
+
+  await operator.emit(EVENTS.resetIds);
+
+  assert.strictEqual(registry.size, 0);
+  assert.strictEqual(audio.voices.size, 0);
+  assert.strictEqual(first.socket.disconnected, true);
+  assert.strictEqual(second.socket.disconnected, true);
+  assert.strictEqual(seats.get(token), undefined);
+
+  // A device reconnecting after the bounce has no seat anymore — it gets
+  // a fresh id in rejoin order.
+  const rejoined = connect();
+
+  await rejoined.emit(EVENTS.join, { token });
+
+  assert.strictEqual(
+    rejoined.sent.find((m) => m.event === EVENTS.joined).payload.id,
+    1,
+  );
+
+  assert.ok(
+    broadcasts.some(
+      (m) => m.event === EVENTS.state && m.payload.clients.length === 0,
+    ),
+  );
 });

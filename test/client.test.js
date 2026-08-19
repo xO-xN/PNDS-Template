@@ -19,6 +19,7 @@ const EVENTS = {
   control: "control",
   setOut: "set-out",
   state: "state",
+  resetIds: "reset-ids",
 };
 
 const TOKEN_KEY = "pnds-test-token";
@@ -288,4 +289,21 @@ test("connectMonitor sees the client list and reassigns channels", () => {
 
   assert.deepStrictEqual(monitor.clients, []);
   assert.strictEqual(seen.length, 2);
+});
+
+test("connectMonitor resetIds emits the reset event", () => {
+  const { io, sockets } = createFakeIo();
+
+  const monitor = connectMonitor({
+    io,
+    port: 6868,
+    events: EVENTS,
+    hostname: "192.168.1.9",
+  });
+
+  monitor.resetIds();
+
+  assert.deepStrictEqual(sockets[0].sentFor(EVENTS.resetIds), [
+    { event: EVENTS.resetIds, payload: undefined },
+  ]);
 });

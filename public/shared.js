@@ -126,6 +126,7 @@
       control: "control",
       setOut: "set-out",
       state: "state",
+      resetIds: "reset-ids",
     },
   };
 });

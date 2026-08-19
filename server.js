@@ -24,6 +24,7 @@ const { resolveHostLanIp } = require("./lib/network");
 const { HealthTracker } = require("./lib/health");
 const { AudioEngine } = require("./lib/audio-engine");
 const { PlayerRegistry } = require("./lib/players");
+const { SeatsStore } = require("./lib/seats-store");
 const { qrHandler } = require("./lib/qr");
 const { attachProtocol } = require("./lib/protocol");
 const { ProjectAudio } = require("./audio/controller");
@@ -112,6 +113,15 @@ const registry = new PlayerRegistry({
   maxClients: audioEngine.outputChannels,
 });
 
+// Seat assignments (token -> {id, out}) survive restarts, so a reopened
+// work hands every known device back its seat and channel. Relocate the
+// file with PNDS_SEATS_FILE (tests and the App point it elsewhere).
+const seats = new SeatsStore({
+  file:
+    process.env.PNDS_SEATS_FILE ||
+    path.join(PROJECT_ROOT, ".pnds-seats.json"),
+});
+
 // ------------------------------------------------------------
 // Startup
 // ------------------------------------------------------------
@@ -176,6 +186,7 @@ attachProtocol(io, {
   events: shared.events,
   registry,
   projectAudio,
+  seats,
 });
 
 // ------------------------------------------------------------

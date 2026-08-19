@@ -201,6 +201,12 @@
         socket.emit(events.setOut, { id, out });
       },
 
+      // The monitor's reset button: the server wipes every seat record
+      // and bounces the performers, who rejoin with fresh ids.
+      resetIds() {
+        socket.emit(events.resetIds);
+      },
+
       close() {
         socket.close();
       },
