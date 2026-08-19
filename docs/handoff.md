@@ -6,7 +6,8 @@
 
 - `lib/` 是可复用核心，**不得包含作品特定逻辑**。改动它意味着所有基于模板的工程都受影响。
 - `audio/controller.js` 是作品语义层：id → voice、声道分配、external OSC 协议。
-- `server.js` 只做编排（挂载协议、生命周期），不含业务算法。Socket.IO 协议语义（join / claim / 重连恢复 / 控制转发 / 广播）在 `lib/protocol.js`。
+- `server.js` 只做编排（挂载协议、生命周期），不含业务算法。Socket.IO 协议语义（join / claim / 重连恢复 / 控制转发 / 席位记录与重配 / 广播）在 `lib/protocol.js`。
+- `lib/seats-store.js` 是席位持久化核心（claim token → {id, out}，跨重启），状态文件默认在工程根 `.pnds-seats.json`（`PNDS_SEATS_FILE` 可重定位）；推子状态刻意留在内存（protocol.js 的 lastControls）——它只需扛锁屏重连，不需扛重启。
 - `public/shared.js` 是浏览器与 server 的**单一事实来源**（事件名、频率范围、常量），必须保持 UMD 形态（浏览器全局 `window.PNDS` + Node `module.exports`）。
 
 ## 端口约定
