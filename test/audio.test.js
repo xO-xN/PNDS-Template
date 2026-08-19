@@ -61,6 +61,7 @@ test("engine commands after stop() are no-ops (shutdown race)", async () => {
   await engine.freeNode(1001);
   await engine.setControls(1001, { amp: 0 });
   await engine.send("/c1/amp", [0]);
+  await engine.verifySynthControl(1001, "amp");
 });
 
 const { freqRange } = require("../public/shared");
@@ -167,6 +168,11 @@ class FakeTransport {
     return { address: "/synced" };
   }
 
+  async getSynthControl(nodeId, control) {
+    await this.send("/s_get", nodeId, control);
+    return { address: "/n_set" };
+  }
+
   async close() {
     this.closed = true;
   }
@@ -242,6 +248,18 @@ test("stop() closes the injected transport", async () => {
   await engine.stop();
 
   assert.equal(transport.closed, true);
+});
+
+test("verifySynthControl reads a control back (/s_get)", async () => {
+  const { engine, transport } = createEngine();
+
+  await engine.start();
+  await engine.verifySynthControl(1001, "amp");
+
+  assert.deepEqual(transport.sent.at(-1), {
+    address: "/s_get",
+    args: [1001, "amp"],
+  });
 });
 
 test("external send passes the work OSC message through", async () => {

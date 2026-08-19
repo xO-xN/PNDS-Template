@@ -18,6 +18,8 @@ class FakeEngine {
     this.setControlsCalls = [];
     this.freedNodes = [];
     this.sent = [];
+    this.verified = [];
+    this.failVerify = false;
   }
 
   async start() {}
@@ -38,6 +40,15 @@ class FakeEngine {
 
   async send(address, args) {
     this.sent.push({ address, args });
+  }
+
+  async verifySynthControl(nodeId, control) {
+    if (this.failVerify) {
+      throw new Error("node not found");
+    }
+
+    this.verified.push({ nodeId, control });
+    return 0;
   }
 
   async stop() {}
@@ -63,6 +74,24 @@ test("addVoice births an internal voice silent on its default channel", async ()
   assert.strictEqual(synth.out, 0); // engine.outputBus + channel 1 - 1
   assert.strictEqual(synth.controls.amp, 0);
   assert.strictEqual(synth.controls.freq, FREQ_MIN);
+
+  // The /s_new is proven by a read-back, not trusted fire-and-forget.
+  assert.deepStrictEqual(engine.verified, [{ nodeId: 1001, control: "amp" }]);
+});
+
+test("a voice whose /s_new silently failed is not registered", async () => {
+  // Without the read-back a failed /s_new leaves a phantom voice the
+  // server believes in; with it, the join is rejected instead.
+  const engine = new FakeEngine();
+  const audio = new ProjectAudio(engine);
+
+  engine.failVerify = true;
+
+  await assert.rejects(() => audio.addVoice(1));
+
+  assert.strictEqual(audio.hasVoice(1), false);
+  assert.strictEqual(engine.verified.length, 0); // the throw pre-empts recording
+  assert.strictEqual(engine.createSynthCalls.length, 1); // the /s_new went out
 });
 
 test("addVoice with persisted state births the voice restored — no intermediate writes", async () => {

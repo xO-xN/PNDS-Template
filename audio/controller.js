@@ -164,6 +164,12 @@ class ProjectAudio {
           freq: voice.freq,
         },
       });
+
+      // A fire-and-forget /s_new that failed (bad def name, dead engine)
+      // is otherwise silent — read a control back to prove the node
+      // exists. The throw rejects the join instead of leaving a phantom
+      // voice the server believes in.
+      await this.engine.verifySynthControl(voice.nodeId, "amp");
     } else if (this.engine.mode === "external") {
       await this.sendVoiceState(id, voice);
     }
