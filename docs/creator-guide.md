@@ -66,7 +66,7 @@ lib/                      可复用核心，任何 PNDS 工程通用（template 
   osc-transport.js        UDP OSC 传输（osc-min + dgram）
   audio-engine.js         scsynth 会话生命周期（bus / group / synthdef 加载）
   players.js              客户端 id 分配与重连恢复（claim token）
-  protocol.js             Socket.IO 协议：join / claim / 重连恢复 / 控制转发 / 广播
+  protocol.js             Socket.IO 协议：join / claim / 重连恢复 / 控制转发（载荷不透明，字段语义在作品层）/ 广播
   lifecycle.js            优雅关闭
   qr.js                   performer 页面 QR 码（GET /qr）
 audio/                    作品音频语义层：推子 → synth 参数的映射（创作时改这里）
@@ -93,10 +93,11 @@ docs/                     本指南与交接文档
 |---|---|
 | 换作品名 / 端口 / 声道数 | `manifest.json`（改端口只需改这里） |
 | 改推子 → 声音的映射 | `audio/controller.js` |
+| 加一个控制字段（如新推子） | `public/performer.js`（发送）+ `audio/controller.js`（在 `applyControls` 读取并钳位；协议层不透明转发，`lib/` 不用动） |
 | 改声音本身（波形、效果） | `supercollider/source/template-sine.scd`，然后重新编译 |
 | 改演奏者界面 | `public/performer.js`（p5） |
 | 改监视端 | `public/monitor.js` |
-| 加 Socket.IO 事件 | `public/shared.js`（事件名）+ `server.js`（处理） |
+| 加 Socket.IO 事件 | `public/shared.js`（事件名）+ `lib/protocol.js`（处理——核心协议语义，一般不需要） |
 | 改推子频率范围 / 音区 | `public/shared.js` 的 `registers`（每区 `freqRange` + `freqTicks`；页面显示、刻度与 server 发声自动同步，无需改 `audio/controller.js`） |
 | 改客户端上限 | `manifest.json` 的 `audio.outputChannels`（id 上限 = 输出声道数） |
 

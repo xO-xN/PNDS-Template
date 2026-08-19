@@ -1,8 +1,9 @@
 // PNDS Template work layer: per-client sine voice control.
 //
 // This is the file creators edit to change the *semantics* of the work
-// (what the faders do, how voices are routed). The transport and engine
-// primitives live in lib/.
+// (what the faders do, how voices are routed) — including the shape of
+// control payloads, which lib/protocol.js forwards opaquely. The
+// transport and engine primitives live in lib/.
 //
 // Conventions:
 // - Every joined client gets one voice (one sine synth in Internal mode).
@@ -67,13 +68,29 @@ function defaultOutChannel(id) {
   return id % 2 === 1 ? 1 : 2;
 }
 
-// Map raw fader values (0..1) onto a voice record. Single owner of the
-// raw→mapped mapping: addVoice(…, state) and setControls feed through
-// here, so birth-with-state and live control cannot drift apart.
-function applyControls(voice, { amp, freq, range }) {
-  voice.register = resolveRegister(range);
-  voice.rawAmp = clamp01(amp);
-  voice.rawFreq = clamp01(freq);
+// Apply a control payload to a voice record. The payload arrives
+// unvalidated from the wire (protocol forwards it opaquely): fields
+// that are not finite numbers are ignored — a malformed message must
+// not zero a fader mid-show — and unknown fields are not read. Single
+// owner of the raw→mapped mapping: addVoice(…, state) and setControls
+// feed through here, so birth-with-state and live control cannot drift
+// apart.
+function applyControls(voice, payload) {
+  const fields = payload || {};
+  const range = Number(fields.range);
+
+  if (range === 1 || range === 2 || range === 3) {
+    voice.register = range;
+  }
+
+  if (Number.isFinite(Number(fields.amp))) {
+    voice.rawAmp = clamp01(fields.amp);
+  }
+
+  if (Number.isFinite(Number(fields.freq))) {
+    voice.rawFreq = clamp01(fields.freq);
+  }
+
   voice.amp = mapAmp(voice.rawAmp);
   voice.freq = mapFreq(voice.rawFreq, voice.register);
 }
@@ -156,7 +173,7 @@ class ProjectAudio {
     return voice;
   }
 
-  async setControls(id, { amp, freq, range }) {
+  async setControls(id, payload) {
     const voice = this.voices.get(id);
 
     if (!voice) {
@@ -165,8 +182,9 @@ class ProjectAudio {
 
     // Keep the raw fader values (0..1) so a reconnect can restore the
     // voice by re-mapping them (setControls must not be fed already-mapped
-    // values — that would map them twice).
-    applyControls(voice, { amp, freq, range });
+    // values — that would map them twice). The payload is applied
+    // field-by-field; applyControls is the wire-side gatekeeper.
+    applyControls(voice, payload);
 
     if (this.engine.mode === "internal") {
       await this.engine.setControls(voice.nodeId, {

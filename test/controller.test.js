@@ -134,6 +134,38 @@ test("setOutChannel validates against the engine's outputChannels", async () => 
   await assert.rejects(() => audio.setOutChannel(1, 5));
 });
 
+test("setControls applies only the fields it receives — partials keep the rest", async () => {
+  const audio = new ProjectAudio(new FakeEngine());
+
+  await audio.addVoice(1);
+  await audio.setControls(1, { amp: 0.5, freq: 0.5, range: 2 });
+  await audio.setControls(1, { amp: 0.8 });
+
+  const state = audio.voiceState(1);
+
+  assert.strictEqual(state.amp, 0.8);
+  assert.strictEqual(state.freq, 0.5); // untouched by the partial payload
+  assert.strictEqual(state.range, 2);
+});
+
+test("setControls ignores non-numeric, unknown and null payloads", async () => {
+  // The payload arrives unvalidated from the wire (the protocol forwards
+  // it opaquely): a malformed message must not zero a fader mid-show.
+  const audio = new ProjectAudio(new FakeEngine());
+
+  await audio.addVoice(1);
+  await audio.setControls(1, { amp: 0.5, freq: 0.5, range: 2 });
+  await audio.setControls(1, { amp: "loud", volume: 1 });
+  await audio.setControls(1, null);
+
+  assert.deepEqual(audio.voiceState(1), {
+    amp: 0.5,
+    freq: 0.5,
+    range: 2,
+    out: 1,
+  });
+});
+
 test("removeVoice frees the synth node", async () => {
   const engine = new FakeEngine();
   const audio = new ProjectAudio(engine);

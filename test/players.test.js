@@ -69,3 +69,18 @@ test("releaseBySocket returns the assignment and frees it", () => {
   });
   assert.equal(registry.releaseBySocket("a"), null);
 });
+
+test("getTokenById returns the owning token, null for free ids", () => {
+  // The lookup the protocol needs to persist a voice's state under its
+  // owner — regardless of which socket (e.g. the operator's) triggered
+  // the mutation.
+  const registry = new PlayerRegistry({ maxClients: 2 });
+  const first = registry.allocate({ socketId: "a", claimToken: null });
+
+  assert.equal(registry.getTokenById(1), first.token);
+  assert.equal(registry.getTokenById(2), null);
+
+  registry.releaseBySocket("a");
+
+  assert.equal(registry.getTokenById(1), null);
+});

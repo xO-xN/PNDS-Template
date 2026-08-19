@@ -64,16 +64,28 @@ class FakeProjectAudio {
     this.addVoiceCalls.push({ id, state: state ?? null });
   }
 
-  async setControls(id, { amp, freq, range }) {
+  // Mirrors the real contract: the payload is applied field-by-field —
+  // non-finite values are ignored, so a malformed message cannot zero a
+  // fader — and the raw payload is recorded verbatim (the protocol
+  // forwards it opaquely, so the recording is the opacity assertion).
+  async setControls(id, payload) {
     const voice = this.voices.get(id);
+    const fields = payload || {};
 
-    voice.rawAmp = clamp01(amp);
-    voice.rawFreq = clamp01(freq);
-    voice.register = [1, 2, 3].includes(Number(range))
-      ? Number(range)
-      : shared.defaultRegister;
+    if (Number.isFinite(Number(fields.amp))) {
+      voice.rawAmp = clamp01(fields.amp);
+    }
+
+    if (Number.isFinite(Number(fields.freq))) {
+      voice.rawFreq = clamp01(fields.freq);
+    }
+
+    if ([1, 2, 3].includes(Number(fields.range))) {
+      voice.register = Number(fields.range);
+    }
+
     voice.amp = voice.rawAmp ** 2;
-    this.setControlsCalls.push({ id, amp, freq, range });
+    this.setControlsCalls.push({ id, payload: payload ?? null });
   }
 
   async setOutChannel(id, out) {
@@ -82,7 +94,13 @@ class FakeProjectAudio {
   }
 
   async restoreVoice(id, state) {
-    await this.setControls(id, state);
+    // Mirrors the real contract: restore re-feeds the control fields,
+    // then the channel.
+    await this.setControls(id, {
+      amp: state.amp,
+      freq: state.freq,
+      range: state.range,
+    });
     await this.setOutChannel(id, state.out);
   }
 
@@ -241,20 +259,29 @@ test("control forwards the raw payload to setControls", async () => {
   await connection.emit(EVENTS.join, { token: null });
 
   const broadcastsBefore = broadcasts.length;
+  const control = { amp: 0.5, freq: 0.25, range: 1 };
 
-  await connection.emit(EVENTS.control, {
-    amp: 0.5,
-    freq: 0.25,
-    range: 1,
-  });
+  await connection.emit(EVENTS.control, control);
 
-  assert.deepStrictEqual(audio.setControlsCalls.at(-1), {
-    id: 1,
-    amp: 0.5,
-    freq: 0.25,
-    range: 1,
-  });
+  // Verbatim, same object: the protocol holds no shape knowledge of the
+  // payload (no synthesized keys, no re-wrapping).
+  assert.strictEqual(audio.setControlsCalls.at(-1).payload, control);
   assert.strictEqual(broadcasts.length, broadcastsBefore + 1);
+});
+
+test("malformed control payloads pass through without touching the protocol", async () => {
+  const { audio, connect } = createHarness();
+  const connection = connect();
+
+  await connection.emit(EVENTS.join, { token: null });
+
+  const partial = { amp: 0.9 };
+
+  await connection.emit(EVENTS.control, partial);
+  await connection.emit(EVENTS.control, null);
+
+  assert.strictEqual(audio.setControlsCalls[0].payload, partial);
+  assert.strictEqual(audio.setControlsCalls[1].payload, null);
 });
 
 test("control from an unregistered socket is ignored", async () => {
@@ -324,6 +351,68 @@ test("set-out followed by a reconnect restores raw values with register", async 
   });
 });
 
+test("an operator set-out persists under the target client's token", async () => {
+  // Regression: persist once resolved the token from the *sender's*
+  // socket — the operator never joins, so the lookup returned null and
+  // the operator's channel change was never persisted.
+  const { audio, connect } = createHarness();
+  const performer = connect();
+
+  await performer.emit(EVENTS.join, { token: null });
+
+  const { token } = performer.sent.find((m) => m.event === EVENTS.joined)
+    .payload;
+
+  const operator = connect();
+
+  await operator.emit(EVENTS.setOut, { id: 1, out: 4 });
+  await performer.emit("disconnect");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const reconnected = connect();
+
+  await reconnected.emit(EVENTS.join, { token });
+
+  assert.deepStrictEqual(audio.addVoiceCalls.at(-1).state, {
+    amp: 0,
+    freq: 0,
+    range: shared.defaultRegister,
+    out: 4,
+  });
+});
+
+test("an operator set-out survives a takeover reconnect (no rollback)", async () => {
+  // The exact failure the sender-keyed persist caused: a takeover that
+  // races the old socket's disconnect restores the still-alive voice
+  // from state that carried the pre-operator channel — audibly rolling
+  // the operator's change back.
+  const { audio, connect } = createHarness();
+  const first = connect();
+
+  await first.emit(EVENTS.join, { token: null });
+
+  const { token } = first.sent.find((m) => m.event === EVENTS.joined)
+    .payload;
+
+  await first.emit(EVENTS.control, { amp: 0.5, freq: 0.5, range: 2 });
+
+  const operator = connect();
+
+  await operator.emit(EVENTS.setOut, { id: 1, out: 4 });
+
+  // Takeover: the same token joins from a new socket while the voice is
+  // still alive.
+  const second = connect();
+
+  await second.emit(EVENTS.join, { token });
+
+  assert.strictEqual(audio.addVoiceCalls.length, 1); // restored in place
+  assert.deepStrictEqual(audio.setOutChannelCalls.at(-1), {
+    id: 1,
+    out: 4,
+  });
+});
+
 test("a recovered join with the voice still alive re-feeds it via restoreVoice", async () => {
   // A takeover reconnect can arrive before the old socket's disconnect
   // handler freed the voice — then the voice is restored in place.
@@ -345,9 +434,7 @@ test("a recovered join with the voice still alive re-feeds it via restoreVoice",
   assert.strictEqual(audio.setControlsCalls.length, setControlsBefore + 1);
   assert.deepStrictEqual(audio.setControlsCalls.at(-1), {
     id: 1,
-    amp: 0.7,
-    freq: 0.2,
-    range: 1,
+    payload: { amp: 0.7, freq: 0.2, range: 1 },
   });
 });
 
