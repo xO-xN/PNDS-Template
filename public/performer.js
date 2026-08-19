@@ -22,24 +22,26 @@
 
 const P = window.PNDS;
 
-let socket = null;
-let joined = false;
-let myId = null;
-let myOut = null; // current output channel, tracked from state broadcasts
-let rejectedReason = null;
+// Score-server client: connection, claim-token join/rejoin, my-voice
+// state tracking and the send-if-changed deadband live in client.js
+// (tested there); this page is drawing and input only.
+const client = window.PNDSClient.connectPerformer({
+  io: io,
+  port: P.performerPort,
+  events: P.events,
+  tokenKey: P.tokenKey,
+  storage: localStorage,
+  hostname: location.hostname,
+});
 
 let ampValue = 0;
 let freqValue = 0;
-let lastSentAmp = -1;
-let lastSentFreq = -1;
 
 // Active fader register (1 = low, 2 = mid, 3 = high); switched with the
 // 3-position switch below the status text. The fader VALUE stays put; the
 // Hz band it maps to changes (registers in shared.js).
 let register = P.defaultRegister;
-let lastSentRegister = register;
 
-const SEND_THRESHOLD = 0.002;
 const TWO_PI = Math.PI * 2;
 
 // Fader geometry (fractions of the window). Each arc runs from the top end
@@ -83,7 +85,6 @@ const SWITCH_TEXT_INACTIVE = [150, 160, 180];
 function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
   canvas.parent("stage");
-  connectSocket();
   updateRotateOverlay();
 }
 
@@ -99,56 +100,6 @@ function updateRotateOverlay() {
 
 function isPortrait() {
   return window.innerHeight > window.innerWidth;
-}
-
-// ------------------------------------------------------------
-// Socket.IO: join, recover, control
-// ------------------------------------------------------------
-
-function connectSocket() {
-  socket = io("http://" + location.hostname + ":" + P.performerPort, {
-    reconnection: true,
-    reconnectionDelay: 1000,
-  });
-
-  socket.on(P.events.joined, (data) => {
-    joined = true;
-    myId = data.id;
-    myOut = null; // arrives with the first state broadcast
-    rejectedReason = null;
-    localStorage.setItem(P.tokenKey, data.token);
-  });
-
-  socket.on(P.events.rejected, (data) => {
-    joined = false;
-    myId = null;
-    myOut = null;
-    rejectedReason = data.reason || "Rejected";
-  });
-
-  // Track this voice's output channel from the state broadcasts, so the
-  // status line follows channel reassignments made on the monitor page.
-  socket.on(P.events.state, (data) => {
-    if (myId === null) {
-      return;
-    }
-
-    const mine = (data.clients || []).find((client) => client.id === myId);
-
-    myOut = mine ? mine.out : null;
-  });
-
-  socket.on("connect", () => {
-    // Fires on first connect and after every reconnect: (re)join with the
-    // persisted token so the server hands back the same client id.
-    socket.emit(P.events.join, {
-      token: localStorage.getItem(P.tokenKey) || null,
-    });
-  });
-
-  socket.on("disconnect", () => {
-    joined = false;
-  });
 }
 
 // ------------------------------------------------------------
@@ -431,23 +382,10 @@ function mouseDragged() {
   return false;
 }
 
+// The deadband (send only when a value actually moved) lives in the
+// client module; this is just "the inputs changed, offer them".
 function sendIfChanged() {
-  if (!joined) {
-    return;
-  }
-
-  if (
-    register === lastSentRegister &&
-    Math.abs(ampValue - lastSentAmp) < SEND_THRESHOLD &&
-    Math.abs(freqValue - lastSentFreq) < SEND_THRESHOLD
-  ) {
-    return;
-  }
-
-  lastSentAmp = ampValue;
-  lastSentFreq = freqValue;
-  lastSentRegister = register;
-  socket.emit(P.events.control, {
+  client.sendControls({
     amp: ampValue,
     freq: freqValue,
     range: register,
@@ -656,13 +594,13 @@ function drawStatus() {
   textAlign(CENTER, TOP);
   textSize(24);
 
-  if (rejectedReason) {
+  if (client.rejectedReason) {
     fill(255, 120, 120);
-    text("rejected: " + rejectedReason, width / 2, 14);
-  } else if (joined) {
+    text("rejected: " + client.rejectedReason, width / 2, 14);
+  } else if (client.joined) {
     fill(120, 220, 150);
     text(
-      "ID: " + myId + "  CH: " + (myOut === null ? "–" : myOut),
+      "ID: " + client.myId + "  CH: " + (client.myOut === null ? "–" : client.myOut),
       width / 2,
       14,
     );

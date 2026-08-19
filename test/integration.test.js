@@ -6,7 +6,13 @@ const path = require("node:path");
 
 const { io } = require("socket.io-client");
 
-const { freqRange, registers, events: EVENTS } = require("../public/shared");
+const {
+  freqRange,
+  registers,
+  events: EVENTS,
+  tokenKey,
+} = require("../public/shared");
+const { connectPerformer, connectMonitor } = require("../public/client");
 const { loadManifest, resolveServerConfig } = require("../lib/config");
 
 const PROJECT_ROOT = path.join(__dirname, "..");
@@ -90,6 +96,38 @@ function waitForState(socket, predicate, timeoutMs = 5000) {
 
     socket.on(EVENTS.state, onState);
   });
+}
+
+// Polls a predicate until it holds (the client module surfaces state
+// through getters, not promises).
+async function waitForCondition(predicate, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return true;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  return false;
+}
+
+// localStorage stand-in for the client module (the browser pages inject
+// the real one).
+function createClientStorage() {
+  const entries = new Map();
+
+  return {
+    getItem(key) {
+      return entries.has(key) ? entries.get(key) : null;
+    },
+    setItem(key, value) {
+      entries.set(key, value);
+    },
+    entries,
+  };
 }
 
 // Fails fast with an actionable message when a dev server already holds
@@ -257,6 +295,77 @@ test("score server: health, join, control, set-out, reconnect, pages", async (t)
   assert.equal(restored.register, 2);
   assert.equal(restored.freq, expectedR2MidFreq);
   assert.equal(restored.amp, 0.25);
+
+  // --- client module: the pages' connection code against the real server ---
+  // join (token persisted), deadband over the wire, monitor view,
+  // operator set-out reaching the performer status, reload recovery.
+  const clientStorage = createClientStorage();
+  const performerClient = connectPerformer({
+    io,
+    port: SERVER_CONFIG.performerPort,
+    events: EVENTS,
+    tokenKey,
+    storage: clientStorage,
+    hostname: "127.0.0.1",
+  });
+  t.after(() => performerClient.close());
+
+  assert.ok(await waitForCondition(() => performerClient.joined));
+  assert.equal(performerClient.myId, 3); // ids 1 and 2 are taken
+  assert.equal(typeof clientStorage.entries.get(tokenKey), "string");
+
+  // State is broadcast only on mutations, so the monitor must be fully
+  // connected before the control it is meant to observe.
+  const monitorClient = connectMonitor({
+    io,
+    port: SERVER_CONFIG.performerPort,
+    events: EVENTS,
+    hostname: "127.0.0.1",
+  });
+  t.after(() => monitorClient.close());
+
+  assert.ok(await waitForCondition(() => monitorClient.connected));
+
+  // The deadband: the first payload goes out, sub-threshold jitter does not.
+  assert.equal(
+    performerClient.sendControls({ amp: 0.5, freq: 0.5, range: 3 }),
+    true,
+  );
+  assert.equal(
+    performerClient.sendControls({ amp: 0.5001, freq: 0.5, range: 3 }),
+    false,
+  );
+
+  // The control crossed the wire: the monitor sees amp 0.25 (0.5 mapped
+  // once by the server's audio taper).
+  assert.ok(
+    await waitForCondition(() => {
+      const mine = monitorClient.clients.find((entry) => entry.id === 3);
+      return Boolean(mine && mine.amp === 0.25);
+    }),
+  );
+
+  // Operator channel reassignment reaches the performer's myOut tracking.
+  monitorClient.setOut(3, 6);
+
+  assert.ok(await waitForCondition(() => performerClient.myOut === 6));
+
+  // A fresh client with the same storage (page reload / phone lock)
+  // recovers the same id.
+  performerClient.close();
+
+  const reloaded = connectPerformer({
+    io,
+    port: SERVER_CONFIG.performerPort,
+    events: EVENTS,
+    tokenKey,
+    storage: clientStorage,
+    hostname: "127.0.0.1",
+  });
+  t.after(() => reloaded.close());
+
+  assert.ok(await waitForCondition(() => reloaded.joined));
+  assert.equal(reloaded.myId, 3);
 
   // --- pages served on both ports ---
   const performerResponse = await fetch(`${PERFORMER_URL}/`);

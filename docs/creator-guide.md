@@ -74,6 +74,7 @@ audio/                    作品音频语义层：推子 → synth 参数的映�
 public/                   浏览器端（performer + monitor 双角色单页）
   index.html              双角色入口（按端口加载不同脚本）
   shared.js               浏览器与 server 共用的常量：事件名 / 频率范围（单一事实来源，见下文）
+  client.js               浏览器端 score-server 客户端：performer 加入/重连恢复/去抖发送、monitor 状态视图（页面只管绘制与输入；有 Node 测试）
   performer.js            演奏者横屏推子界面（p5）
   monitor.js              监视端：列表 + 声道分配
   style.css

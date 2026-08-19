@@ -7,6 +7,15 @@
 
 const P = window.PNDS;
 
+// Score-server client (observer role: never joins) — connection and
+// state parsing live in client.js; this page is the table and selects.
+const client = window.PNDSClient.connectMonitor({
+  io: io,
+  port: P.performerPort,
+  events: P.events,
+  hostname: location.hostname,
+});
+
 let clients = [];
 let selects = []; // p5 select elements, rebuilt when the client set changes
 let qrImage = null;
@@ -18,16 +27,10 @@ const QR_SIZE = 150;
 const QR_SPACE = QR_SIZE + 24;
 const SELECT_WIDTH = 64;
 
-const socket = io(
-  "http://" + location.hostname + ":" + P.performerPort,
-  { reconnection: true },
-);
-
-socket.on(P.events.state, (data) => {
-  const next = data.clients || [];
+client.onClients((next) => {
   const idsChanged =
     next.length !== clients.length ||
-    next.some((client, index) => !clients[index] || client.id !== clients[index].id);
+    next.some((entry, index) => !clients[index] || entry.id !== clients[index].id);
 
   clients = next;
 
@@ -69,19 +72,16 @@ function removeSelects() {
 }
 
 function createSelects() {
-  for (const client of clients) {
+  for (const entry of clients) {
     const select = createSelect();
 
     for (let channel = 1; channel <= P.outputChannels; channel += 1) {
       select.option(String(channel));
     }
 
-    select.selected(String(client.out));
+    select.selected(String(entry.out));
     select.changed(() => {
-      socket.emit(P.events.setOut, {
-        id: client.id,
-        out: Number(select.value()),
-      });
+      client.setOut(entry.id, Number(select.value()));
     });
 
     select.style("background", "#22262f");

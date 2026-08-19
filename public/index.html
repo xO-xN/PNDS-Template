@@ -15,6 +15,7 @@
 
     <script src="__config.js"></script>
     <script src="shared.js"></script>
+    <script src="client.js"></script>
     <script>
       // Single page, two roles: the performer port serves the touch UI,
       // the monitor port serves the operator view.
@@ -22,12 +23,14 @@
         window.location.port === String(window.PNDS.monitorPort);
 
       // Socket.IO is served by the performer server; the monitor page loads
-      // it cross-port. No CDN: performances run offline.
+      // it cross-port. No CDN: performances run offline. The origin comes
+      // from client.js — the single owner of the performer-server URL.
       document.write(
-        '\x3Cscript src="http://' +
-          location.hostname +
-          ':' +
-          window.PNDS.performerPort +
+        '\x3Cscript src="' +
+          window.PNDSClient.socketOrigin({
+            hostname: location.hostname,
+            port: window.PNDS.performerPort,
+          }) +
           '/socket.io/socket.io.js"\x3E\x3C/script\x3E',
       );
 
