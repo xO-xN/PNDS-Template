@@ -146,3 +146,25 @@ test("rejects when every id is live or reserved", () => {
   assert.equal(rejected.status, "rejected");
   assert.match(rejected.message, /max 2/);
 });
+
+test("reassign moves a live assignment to a free id", () => {
+  const registry = new PlayerRegistry({ maxClients: 3 });
+  const first = registry.allocate({ socketId: "a", claimToken: null });
+
+  assert.equal(registry.reassign(1, 3), true);
+  assert.equal(registry.getTokenById(1), null);
+  assert.equal(registry.getTokenById(3), first.token); // token followed
+});
+
+test("reassign refuses unknown ids, live targets and out-of-range", () => {
+  const registry = new PlayerRegistry({ maxClients: 3 });
+
+  registry.allocate({ socketId: "a", claimToken: null }); // id 1
+  registry.allocate({ socketId: "b", claimToken: null }); // id 2
+
+  assert.equal(registry.reassign(9, 3), false); // unknown id
+  assert.equal(registry.reassign(1, 2), false); // target live
+  assert.equal(registry.reassign(1, 1), false); // target is self
+  assert.equal(registry.reassign(1, 4), false); // out of range
+  assert.equal(registry.getTokenById(1) !== null, true); // nothing moved
+});

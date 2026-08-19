@@ -94,6 +94,29 @@ test("clear wipes the seats and the file", () => {
   assert.equal(reloaded.get("token-aaaaaaaaaaaaaaaaaaaaaaaa"), undefined);
 });
 
+test("one token per seat: recording a seat evicts the other token", () => {
+  // An operator seat move lands on an id a stale record still claims;
+  // the last command wins and the stale record is gone.
+  const file = tmpFile();
+  const store = new SeatsStore({ file });
+
+  store.record("token-stale-aaaaaaaaaaaaaaaaaaaa", { id: 2, out: 1 });
+  store.record("token-aaaaaaaaaaaaaaaaaaaaaaaa", { id: 5, out: 3 });
+  store.record("token-aaaaaaaaaaaaaaaaaaaaaaaa", { id: 2, out: 3 }); // the move
+
+  assert.equal(store.get("token-stale-aaaaaaaaaaaaaaaaaaaa"), undefined);
+  assert.deepEqual(store.get("token-aaaaaaaaaaaaaaaaaaaaaaaa"), {
+    id: 2,
+    out: 3,
+  });
+
+  // The eviction survives a reload.
+  assert.equal(
+    new SeatsStore({ file }).get("token-stale-aaaaaaaaaaaaaaaaaaaa"),
+    undefined,
+  );
+});
+
 test("a missing file starts empty; a corrupt file is ignored, not fatal", () => {
   const missing = new SeatsStore({ file: tmpFile() });
 

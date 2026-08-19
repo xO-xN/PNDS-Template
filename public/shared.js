@@ -125,6 +125,7 @@
       rejected: "rejected",
       control: "control",
       setOut: "set-out",
+      setSeat: "set-seat",
       state: "state",
       resetIds: "reset-ids",
     },

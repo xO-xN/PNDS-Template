@@ -33,7 +33,9 @@ class FakeProjectAudio {
     this.addVoiceCalls = [];
     this.setControlsCalls = [];
     this.setOutChannelCalls = [];
+    this.removeVoiceCalls = [];
     this.failAddVoice = false;
+    this.failAddVoiceIds = new Set();
   }
 
   hasVoice(id) {
@@ -43,7 +45,7 @@ class FakeProjectAudio {
   // Mirrors the real contract: a state present at birth is applied with
   // the voice, not restored onto it afterwards.
   async addVoice(id, state = null) {
-    if (this.failAddVoice) {
+    if (this.failAddVoice || this.failAddVoiceIds.has(id)) {
       throw new Error("synth creation failed");
     }
 
@@ -126,6 +128,7 @@ class FakeProjectAudio {
 
   async removeVoice(id) {
     this.voices.delete(id);
+    this.removeVoiceCalls.push(id);
   }
 
   snapshot() {
@@ -547,8 +550,102 @@ test("a recorded seat is not handed to a different device", async () => {
   );
 });
 
-test("reset-ids clears seats, frees voices and bounces performers", async () => {
-  const { audio, registry, seats, broadcasts, connect } = createHarness({
+test("an operator seat move reassigns the voice, the record and the page", async () => {
+  const { audio, seats, broadcasts, connect } = createHarness({
+    maxClients: 3,
+  });
+  const performer = connect();
+
+  await performer.emit(EVENTS.join, { token: null });
+
+  const { token } = performer.sent.find((m) => m.event === EVENTS.joined)
+    .payload;
+
+  await performer.emit(EVENTS.control, { amp: 0.5, freq: 0.5, range: 2 });
+  await performer.emit(EVENTS.setOut, { out: 3 });
+
+  const operator = connect();
+
+  await operator.emit(EVENTS.setSeat, { id: 1, to: 3 });
+
+  // The voice moved with its state, born restored (single addVoice, no
+  // restore mutations afterwards).
+  assert.deepStrictEqual(audio.addVoiceCalls.at(-1), {
+    id: 3,
+    state: { amp: 0.5, freq: 0.5, range: 2, out: 3 },
+  });
+  assert.deepStrictEqual(audio.removeVoiceCalls.at(-1), 1);
+  assert.strictEqual(audio.hasVoice(1), false);
+  assert.strictEqual(audio.voiceState(3).out, 3);
+
+  // The seat record followed the device.
+  assert.deepEqual(seats.get(token), { id: 3, out: 3 });
+
+  // The page learns the new id through the same joined event a join
+  // produces — zero page changes.
+  const rejoined = performer.sent
+    .filter((m) => m.event === EVENTS.joined)
+    .at(-1);
+
+  assert.strictEqual(rejoined.payload.id, 3);
+  assert.strictEqual(rejoined.payload.token, token);
+
+  // And the broadcast lists the device under the new seat.
+  const state = broadcasts
+    .filter((m) => m.event === EVENTS.state)
+    .at(-1);
+
+  assert.strictEqual(state.payload.clients[0].id, 3);
+});
+
+test("a seat move to a live target is a no-op", async () => {
+  const { audio, registry, connect } = createHarness({ maxClients: 3 });
+  const first = connect();
+  const second = connect();
+
+  await first.emit(EVENTS.join, { token: null });
+  await second.emit(EVENTS.join, { token: null });
+
+  const operator = connect();
+
+  await operator.emit(EVENTS.setSeat, { id: 1, to: 2 });
+
+  assert.strictEqual(audio.hasVoice(1), true); // nothing moved
+  assert.strictEqual(audio.hasVoice(2), true);
+  assert.deepStrictEqual(audio.removeVoiceCalls, []);
+  assert.strictEqual(registry.getTokenById(1) !== null, true);
+});
+
+test("a failed seat move rolls back to the old seat", async () => {
+  // The engine can fail the re-birth (a dead scsynth): the assignment
+  // returns to the old id and the voice is re-birthed there, so the
+  // device is not left silent under an id nobody maps to.
+  const { audio, registry, connect } = createHarness({ maxClients: 3 });
+  const performer = connect();
+
+  await performer.emit(EVENTS.join, { token: null });
+  await performer.emit(EVENTS.control, { amp: 0.5, freq: 0.5, range: 2 });
+
+  const { token } = performer.sent.find((m) => m.event === EVENTS.joined)
+    .payload;
+
+  const operator = connect();
+
+  audio.failAddVoiceIds.add(3); // the re-birth at the target fails
+
+  await operator.emit(EVENTS.setSeat, { id: 1, to: 3 });
+
+  assert.strictEqual(registry.getTokenById(1), token); // assignment back
+  assert.strictEqual(audio.hasVoice(1), true); // voice re-birthed in place
+  assert.strictEqual(audio.hasVoice(3), false);
+
+  const reborn = audio.addVoiceCalls.at(-1);
+
+  assert.strictEqual(reborn.id, 1);
+  assert.strictEqual(reborn.state.amp, 0.5); // state carried through
+});
+
+test("reset-ids clears seats, frees voices and bounces performers", async () => {  const { audio, registry, seats, broadcasts, connect } = createHarness({
     maxClients: 3,
   });
   const first = connect();

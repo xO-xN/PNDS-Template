@@ -430,12 +430,32 @@ test("score server: health, join, control, set-out, reconnect, restart seats, re
 
   assert.equal(seatState.clients[0].amp, 0); // fader state did not survive
 
-  // --- reset-ids: the operator wipes the seats; rejoin gets a fresh id ---
   const resetOperator = io(PERFORMER_URL, { reconnection: false });
   t.after(() => resetOperator.close());
 
   await new Promise((resolve) => resetOperator.on("connect", resolve));
 
+  // --- seat move: the operator moves the device to another seat ---
+  const movedJoined = new Promise((resolve) =>
+    seatRejoined.socket.once(EVENTS.joined, resolve),
+  );
+
+  resetOperator.emit(EVENTS.setSeat, { id: 3, to: 2 });
+
+  const movedPayload = await movedJoined;
+
+  assert.equal(movedPayload.id, 2); // the page's id tracking follows joined
+  assert.equal(movedPayload.token, performerToken);
+
+  await waitForState(
+    seatRejoined.socket,
+    (state) =>
+      state.clients.length === 1 &&
+      state.clients[0].id === 2 &&
+      state.clients[0].out === 6, // the channel moved with the seat
+  );
+
+  // --- reset-ids: the operator wipes the seats; rejoin gets a fresh id ---
   resetOperator.emit(EVENTS.resetIds);
 
   // The reset's closing broadcast lists no clients — the deterministic

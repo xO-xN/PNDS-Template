@@ -201,6 +201,12 @@
         socket.emit(events.setOut, { id, out });
       },
 
+      // The monitor's seat move: the server reassigns the device to the
+      // target seat number (must be free of live devices).
+      setSeat(id, to) {
+        socket.emit(events.setSeat, { id, to });
+      },
+
       // The monitor's reset button: the server wipes every seat record
       // and bounces the performers, who rejoin with fresh ids.
       resetIds() {

@@ -2,8 +2,9 @@
 //
 // Listens to the score server and draws every joined performer (id, amp,
 // freq, output channel), centered on screen. The operator can reassign each
-// client's output channel with a select, and reset every device's seat
-// assignment (id + channel) with the top-right button — the server wipes
+// client's output channel with a select, move a device to another seat
+// number with the id select (target must be free of live devices), and
+// reset every seat assignment with the top-right button — the server wipes
 // its seat records and the performers rejoin with fresh ids. A QR code for
 // the performer page sits below the table.
 
@@ -19,7 +20,8 @@ const client = window.PNDSClient.connectMonitor({
 });
 
 let clients = [];
-let selects = []; // p5 select elements, rebuilt when the client set changes
+let selects = []; // p5 select elements (output channels), rebuilt on id changes
+let idSelects = []; // p5 select elements (seat numbers), rebuilt on id changes
 let qrImage = null;
 let resetButton = null;
 
@@ -29,6 +31,7 @@ const ROW_HEIGHT = 52;
 const QR_SIZE = 150;
 const QR_SPACE = QR_SIZE + 24;
 const SELECT_WIDTH = 64;
+const ID_SELECT_WIDTH = 56;
 const RESET_WIDTH = 96;
 
 client.onClients((next) => {
@@ -112,11 +115,56 @@ function removeSelects() {
     select.remove();
   }
 
+  for (const select of idSelects) {
+    select.remove();
+  }
+
   selects = [];
+  idSelects = [];
+}
+
+function styleSelect(select, width) {
+  select.style("background", "#22262f");
+  select.style("color", "#e8ecf4");
+  select.style("border", "1px solid #3a4050");
+  select.style("border-radius", "6px");
+  select.style("padding", "4px 8px");
+  select.style("font-size", "14px");
+  select.style("width", width + "px");
 }
 
 function createSelects() {
   for (const entry of clients) {
+    // Seat number: the device can move to any id not held by another
+    // LIVE device (stale seat records are evicted server-side).
+    const idSelect = createSelect();
+
+    for (let id = 1; id <= P.outputChannels; id += 1) {
+      const taken = clients.some(
+        (other) => other.id === id && other.id !== entry.id,
+      );
+
+      if (!taken) {
+        idSelect.option(String(id));
+      }
+    }
+
+    idSelect.selected(String(entry.id));
+    idSelect.changed(() => {
+      const to = Number(idSelect.value());
+
+      // Optimistic send, immediate revert: the server's state broadcast
+      // (only on success) rebuilds the table with the new id; a rejected
+      // move leaves the reverted value standing.
+      if (to !== entry.id) {
+        client.setSeat(entry.id, to);
+      }
+
+      idSelect.selected(String(entry.id));
+    });
+    styleSelect(idSelect, ID_SELECT_WIDTH);
+    idSelects.push(idSelect);
+
     const select = createSelect();
 
     for (let channel = 1; channel <= P.outputChannels; channel += 1) {
@@ -127,14 +175,7 @@ function createSelects() {
     select.changed(() => {
       client.setOut(entry.id, Number(select.value()));
     });
-
-    select.style("background", "#22262f");
-    select.style("color", "#e8ecf4");
-    select.style("border", "1px solid #3a4050");
-    select.style("border-radius", "6px");
-    select.style("padding", "4px 8px");
-    select.style("font-size", "14px");
-    select.style("width", SELECT_WIDTH + "px");
+    styleSelect(select, SELECT_WIDTH);
     selects.push(select);
   }
 }
@@ -157,6 +198,13 @@ function layoutSelects() {
   selects.forEach((select, index) => {
     select.position(
       tableX() + 440,
+      top + HEADER_HEIGHT + index * ROW_HEIGHT + 14,
+    );
+  });
+
+  idSelects.forEach((select, index) => {
+    select.position(
+      tableX() + 8,
       top + HEADER_HEIGHT + index * ROW_HEIGHT + 14,
     );
   });
@@ -231,12 +279,9 @@ function drawHeader() {
 function drawRow(client, y) {
   const x = tableX();
 
-  fill(94, 168, 255);
-  textAlign(LEFT, CENTER);
-  textSize(16);
-  text(String(client.id), x + 16, y + ROW_HEIGHT / 2);
-
+  // The seat number is an idSelect positioned at x + 8, not text.
   fill(232, 236, 244);
+  textAlign(LEFT, CENTER);
   textSize(15);
   text(client.amp.toFixed(3), x + 96, y + ROW_HEIGHT / 2);
   text(Math.round(client.freq) + " Hz", x + 216, y + ROW_HEIGHT / 2);

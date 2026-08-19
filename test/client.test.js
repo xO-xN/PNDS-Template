@@ -18,6 +18,7 @@ const EVENTS = {
   rejected: "rejected",
   control: "control",
   setOut: "set-out",
+  setSeat: "set-seat",
   state: "state",
   resetIds: "reset-ids",
 };
@@ -305,5 +306,22 @@ test("connectMonitor resetIds emits the reset event", () => {
 
   assert.deepStrictEqual(sockets[0].sentFor(EVENTS.resetIds), [
     { event: EVENTS.resetIds, payload: undefined },
+  ]);
+});
+
+test("connectMonitor setSeat emits the seat move", () => {
+  const { io, sockets } = createFakeIo();
+
+  const monitor = connectMonitor({
+    io,
+    port: 6868,
+    events: EVENTS,
+    hostname: "192.168.1.9",
+  });
+
+  monitor.setSeat(3, 5);
+
+  assert.deepStrictEqual(sockets[0].sentFor(EVENTS.setSeat), [
+    { event: EVENTS.setSeat, payload: { id: 3, to: 5 } },
   ]);
 });

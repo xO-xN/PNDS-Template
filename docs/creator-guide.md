@@ -50,6 +50,7 @@ npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
 - 客户端上限 = 输出声道数（manifest 默认 16；App 注入 `PNDS_AUDIO_OUTPUT_CHANNELS` 时以注入值为准）；满员时新客户端被拒绝。
 - 默认声道：**奇数 id → 声道 1，偶数 id → 声道 2**（相对 `PNDS_AUDIO_OUTPUT_BUS`）。
 - Monitor 端可把任意客户端的输出声道改为 1..N（N = server 实际解析的输出声道数，经 `__config.js` 注入浏览器，与 server 校验同源）；允许重叠。Monitor 页下方显示 **performer 页面的 QR 码**（`GET /qr`，由 `lib/qr.js` 生成）。
+- **Monitor 端可调演奏序号**（ID 下拉，与声道分配同款交互）：把设备移到空闲序号——分配、voice（带当前状态原位重建）与席位记录一并迁移，performer 页面经 `joined` 事件自动跟进新序号。目标序号被在线设备占用时不动；被陈旧席位记录占用时覆盖（操作员意图优先）。
 - 客户端断开后，重连（同一浏览器，token 保存在 localStorage）会**恢复原 id 与最后推子状态**；恢复**一次到位**——voice 直接以持久化状态创建（单条 `/s_new` 携带正确的音量/频率/声道），不经过默认值中间态，锁屏重连不会在错误声道出声。
 - **席位记录跨重启持久**：server 把每台设备的演奏序号与声道（`token → {id, out}`）写进工程根目录的 `.pnds-seats.json`，重新开启工程时同一台设备（同一浏览器）自动拿回原序号与原声道；推子状态（freq/amp）不跨重启，重启后归零。席位为其设备保留——新设备不会占用已记录的序号；陈旧记录（不会再来的手机）占满席位时，用 monitor 页右上角的 **重配 ID** 按钮清空全部记录（在线设备会被断开重连、按重连顺序拿新序号，声道回默认）。测试或 App 可用环境变量 `PNDS_SEATS_FILE` 把状态文件指到别处。
 - Performer 状态行显示 **`ID: N CH: N`**：CH 来自 state 广播，monitor 端改道后实时更新。
@@ -100,6 +101,7 @@ docs/                     本指南与交接文档
 | 改声音本身（波形、效果） | `supercollider/source/template-sine.scd`，然后重新编译 |
 | 改演奏者界面 | `public/performer.js`（p5） |
 | 改监视端 | `public/monitor.js` |
+| 调设备演奏序号 | monitor 页 ID 下拉（目标序号需空闲） |
 | 清空设备席位记录（换手机阵容） | monitor 页 **重配 ID** 按钮，或删除 `.pnds-seats.json` 后重启 |
 | 加 Socket.IO 事件 | `public/shared.js`（事件名）+ `lib/protocol.js`（处理——核心协议语义，一般不需要） |
 | 改推子频率范围 / 音区 | `public/shared.js` 的 `registers`（每区 `freqRange` + `freqTicks`；页面显示、刻度与 server 发声自动同步，无需改 `audio/controller.js`） |
