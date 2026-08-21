@@ -370,6 +370,7 @@ test('monitor.js: a delivered palette restyles the p5 controls, malformed palett
     windowHeight: 600,
     width: 800,
     height: 600,
+    document: { documentElement: { style: {} } },
     PNDS: { performerPort: 6868, monitorPort: 6869, outputChannels: 16 },
     PNDSClient: {
       connectMonitor: () => ({
@@ -401,15 +402,27 @@ test('monitor.js: a delivered palette restyles the p5 controls, malformed palett
   assert.equal(button.styles.get('background'), '#16181f')
   assert.equal(button.styles.get('color'), '#eceef5')
   assert.equal(button.styles.get('border'), '1px solid #99a1b5')
+  // The native color-scheme follows the palette (dark stage).
+  assert.equal(page.document.documentElement.style.colorScheme, 'dark')
 
   // Re-delivery lands on the same values (idempotent).
   page.applyPndsTheme('stage', THEME_PALETTES.stage)
   assert.equal(button.styles.get('background'), '#16181f')
 
-  // A malformed palette keeps the current colors and never throws.
+  // A light palette flips the color-scheme the other way.
+  page.applyPndsTheme('lavender', THEME_PALETTES.lavender)
+  assert.equal(page.document.documentElement.style.colorScheme, 'light')
+  assert.equal(button.styles.get('background'), '#ffffff')
+  assert.equal(button.styles.get('color'), '#171a2b')
+
+  // Application is atomic: a palette missing bg or text keeps the
+  // previous COMPLETE theme — keys never mix across themes.
   assert.doesNotThrow(() => page.applyPndsTheme('?', {}))
-  assert.equal(button.styles.get('background'), '#16181f')
-  assert.equal(button.styles.get('border'), '1px solid #99a1b5')
+  assert.doesNotThrow(() =>
+    page.applyPndsTheme('?', { ...THEME_PALETTES.brutal, text: '' }))
+  assert.equal(button.styles.get('background'), '#ffffff')
+  assert.equal(button.styles.get('color'), '#171a2b')
+  assert.equal(page.document.documentElement.style.colorScheme, 'light')
 })
 
 // ---------------------------------------------------------------------------

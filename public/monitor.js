@@ -38,11 +38,14 @@ const RESET_WIDTH = 96;
 // until the App pushes a palette (lib/theme-follow.js delivers it to
 // window.applyPndsTheme). draw() reads these every frame, so a new
 // palette takes effect on the next frame — no redraw orchestration.
+// Values are CSS color strings, passed to fill/stroke/background
+// verbatim: p5 parses #rrggbb natively and tolerates other notations
+// (rgb()/oklch()) the App might someday ship.
 const DEFAULT_THEME = {
-  bg: [20, 22, 28],
-  text: [232, 236, 244],
-  muted: [160, 170, 190],
-  line: [42, 46, 58],
+  bg: "#14161c",
+  text: "#e8ecf4",
+  muted: "#a0aabe",
+  line: "#2a2e3a",
   control: { background: "#22262f", color: "#e8ecf4", border: "#3a4050" },
 };
 
@@ -71,35 +74,54 @@ function hexToRgb(hex) {
   ];
 }
 
-function pickRgb(palette, key, fallback) {
-  return hexToRgb(palette[key]) || fallback;
+// Perceived brightness for the native color-scheme hint; unparsable
+// values read as light (the safer popup default).
+function isLightColor(color) {
+  const rgb = hexToRgb(color);
+  return rgb === null || (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000 >= 140;
 }
 
-function pickColor(palette, key, fallback) {
-  return isHexColor(palette[key]) ? palette[key] : fallback;
-}
-
-// Maps an App palette onto the page's drawing roles. Per-key fallbacks:
-// a palette missing or carrying an unparsable value keeps the current
-// color for that role (the App's tokens are hex today, but the contract
-// does not promise the notation forever). Separators and control
-// borders take text-secondary: the recessed pill token is nearly
-// invisible against the light themes' backgrounds, and this canvas has
-// no card gaps or shadows to fall back on.
+// Maps an App palette onto the page's drawing roles. Application is
+// ATOMIC: bg and text carry the whole readability contract, so a
+// palette missing either keeps the previous complete theme — keys are
+// never mixed across themes (that is how unreadable combos happen).
+// Separators and control borders take text-secondary: the recessed
+// pill token is nearly invisible against the light themes'
+// backgrounds, and this canvas has no card gaps or shadows to lean on.
 function applyTheme(name, palette) {
-  const secondary = pickRgb(palette, "text-secondary", null);
+  const pick = (key) => {
+    const value = palette[key];
+    return typeof value === "string" && value !== "" ? value : null;
+  };
+
+  const bg = pick("bg");
+  const text = pick("text");
+
+  if (!bg || !text) {
+    return;
+  }
+
+  const secondary = pick("text-secondary") || text;
 
   THEME = {
-    bg: pickRgb(palette, "bg", THEME.bg),
-    text: pickRgb(palette, "text", THEME.text),
-    muted: secondary || THEME.muted,
-    line: secondary || THEME.line,
+    bg,
+    text,
+    muted: secondary,
+    line: secondary,
     control: {
-      background: pickColor(palette, "card", THEME.control.background),
-      color: pickColor(palette, "text", THEME.control.color),
-      border: pickColor(palette, "text-secondary", THEME.control.border),
+      background: pick("card") || bg,
+      color: text,
+      border: secondary,
     },
   };
+
+  // WKWebView renders <select> as a native control that ignores CSS
+  // background but honors CSS color — a themed dark text color over the
+  // native dark chrome is unreadable. color-scheme flips the native
+  // rendering (closed box AND the popup list) to match the theme.
+  document.documentElement.style.colorScheme = isLightColor(bg)
+    ? "light"
+    : "dark";
 
   restyleControls();
 }
@@ -136,29 +158,52 @@ function windowResized() {
 // Seat reset
 // ------------------------------------------------------------
 
-// The theme colors of a p5 DOM control (selects, buttons) — separated
-// from the geometry styles so a palette arriving after setup() can
-// restyle the live controls.
-function styleControlColors(control) {
+// A small caret SVG in the current text color — appearance:none
+// removes the native select chrome (which ignores our background), so
+// the arrow has to be drawn ourselves.
+function caretImage(color) {
+  const stroke = color.replace("#", "%23");
+  return (
+    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' " +
+    "width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' " +
+    "stroke='" + stroke + "' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E\")"
+  );
+}
+
+// The theme colors of a p5 DOM control — separated from the geometry
+// styles so a palette arriving after setup() can restyle the live
+// controls. Selects additionally drop the native appearance: WKWebView
+// ignores CSS background on native selects, which left the themed text
+// color unreadable on the untouched dark chrome (issue: lavender).
+function styleControlColors(control, isSelect) {
   control.style("background", THEME.control.background);
   control.style("color", THEME.control.color);
   control.style("border", "1px solid " + THEME.control.border);
+
+  if (isSelect) {
+    control.style("-webkit-appearance", "none");
+    control.style("appearance", "none");
+    control.style("background-image", caretImage(THEME.control.color));
+    control.style("background-repeat", "no-repeat");
+    control.style("background-position", "right 6px center");
+    control.style("padding-right", "20px");
+  }
 }
 
 function restyleControls() {
-  const controls = [resetButton, ...selects, ...idSelects];
+  for (const select of [...selects, ...idSelects]) {
+    styleControlColors(select, true);
+  }
 
-  for (const control of controls) {
-    if (control) {
-      styleControlColors(control);
-    }
+  if (resetButton) {
+    styleControlColors(resetButton, false);
   }
 }
 
 function createResetButton() {
   resetButton = createButton("重配 ID");
   resetButton.mousePressed(requestResetIds);
-  styleControlColors(resetButton);
+  styleControlColors(resetButton, false);
   resetButton.style("border-radius", "6px");
   resetButton.style("padding", "6px 12px");
   resetButton.style("font-size", "14px");
@@ -211,7 +256,7 @@ function removeSelects() {
 }
 
 function styleSelect(select, width) {
-  styleControlColors(select);
+  styleControlColors(select, true);
   select.style("border-radius", "6px");
   select.style("padding", "4px 8px");
   select.style("font-size", "14px");

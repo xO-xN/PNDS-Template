@@ -52,7 +52,8 @@
 - 本模板**不预装 node_modules**（`.gitignore` 排除）；首次使用按 creator-guide 执行 `npm install`。发布包必须预装。
 - p5 是模板的默认视觉方案，不是平台组件。
 - **主题跟随走 spec §5.3（App issue #44/#46 的模板落地）**：monitor 分支加载 `/__pnds/theme-follow.js` 并前置 `window.PNDS_THEME_OPTIONS = { applyVariables: false, onTheme }`——本页 p5 绘制、无 CSS 变量，示范**回调消费**路径（DOM 页零配置走默认 CSS 变量路径的范例是 MSG）。加载顺序契约：模块先于 monitor.js 加载，`?theme=` 初值可能在 monitor.js 之前送达，故 index.html 的 onTheme 钩子把送达 stash 到 `window.PNDS_LAST_THEME`，monitor.js 启动时回放（有测试）。
-- **monitor.js 的主题映射**：`DEFAULT_THEME` 即原硬编码深色（bg [20,22,28] 等）；`applyTheme(name, palette)` 按 key 回退（bg/text/text-secondary→背景/正文/次要文字；**分隔线与控件边框也取 text-secondary**——recessed 的 pill 在浅色主题下对背景仅 ~1.05:1，而本页画布没有卡片间隙或阴影可依赖；控件以 card/text 作底/字），非法或缺失的值保持该角色现色。`draw()` 每帧读 THEME，新调色板下一帧生效；selects/button 的颜色拆到 `styleControlColors`，主题切换时 `restyleControls()` 重上色（stub p5 的黑盒测试覆盖）。
+- **monitor.js 的主题映射**：`DEFAULT_THEME` 即原硬编码深色（hex 字符串形式）；`applyTheme(name, palette)` **原子应用**——bg 或 text 缺失/为空则整体保留上一主题（绝不跨主题混键，混色正是不可读组合的来源），颜色以 CSS 字符串直接喂给 fill/stroke/background（p5 原生解析 #rrggbb，也兼容未来 rgb()/oklch() 记法）。映射：bg/text/text-secondary→背景/正文/次要文字；**分隔线与控件边框也取 text-secondary**（recessed 的 pill 在浅色主题下对背景仅 ~1.05:1，本页画布没有卡片间隙或阴影可依赖）；控件以 card（缺省回退 bg）/text 作底/字。`draw()` 每帧读 THEME，新调色板下一帧生效。
+- **select 的 WKWebView 修复（v0.3.1，用户报告）**：原生 `<select>` 忽略 CSS background 但应用 CSS color——主题化的深色文字叠在原生深色控件上看不清（lavender 报告）。修复三层：`color-scheme` 按 bg 亮度设到 documentElement（原生闭合控件与弹出列表整体翻转明暗）；select 加 `appearance:none` + 自绘 caret（`caretImage()` 按文字色生成 SVG data URI，`styleControlColors(control, isSelect)`）；文字/底/边框照常 CSS 上色。button 无需 appearance（WKWebView 尊重其 background）。
 - **`?theme=<name>` 为前瞻支持**：App 目前不携带该参数；四套主题初值在模块内（复制自 App theme-variables.css）。参数缺席时 monitor 页用 `DEFAULT_THEME`，行为与从前完全一致。
 
 ## 验证命令

@@ -1,6 +1,6 @@
 {
   "name": "pnds-template",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "PNDS score project template: two-fader touch performer driving one sine voice per client with 16-channel output.",
   "main": "server.js",
