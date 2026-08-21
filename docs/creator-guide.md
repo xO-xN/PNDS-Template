@@ -56,6 +56,19 @@ npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
 - Performer 状态行显示 **`ID: N CH: N`**：CH 来自 state 广播，monitor 端改道后实时更新。
 - score server 的终端日志记录协议生命周期（join / disconnect / rejected）——现场排查"幽灵客户端"循环重连时看这里。
 
+## 主题跟随（可选，App 集成）
+
+PNDS App（≥ v1.2.3）会把当前主题（Lavender / Sand / Stage / Brutal）经跨域 `postMessage` 推给 monitor 页（score project spec §5.3），工程**可选**消费。本模板内置了参考实现 `lib/theme-follow.js`，由 server 经 monitor 端口的 `GET /__pnds/theme-follow.js` 提供给浏览器。
+
+本模板的 monitor 页用 **p5 绘制（无 CSS 变量）**，示范的是**回调消费**路径：`public/index.html` 在 monitor 分支加载模块并设置 `window.PNDS_THEME_OPTIONS = { applyVariables: false, onTheme: ... }`，`public/monitor.js` 的 `applyTheme()` 把 palette 映射成画布颜色，`draw()` 每帧读取 THEME——新调色板下一帧即生效，无需重绘编排。DOM 页面（无 canvas）则可零配置直接用默认的 CSS 变量路径（见 Multichannel Signal Generator）。
+
+要点：
+
+- 消息 best-effort、"最新值覆盖"：App 在 iframe 加载、切主题、窗口重获焦点时重推；页面幂等应用（重复送达无副作用），未知/畸形消息静默忽略。
+- 加载时支持 `?theme=<name>` 作为首帧初值（App 目前不携带，缺席时用工程自带配色——本模板即 monitor.js 里 `DEFAULT_THEME` 的深色）。
+- performer 分支不加载该模块、永远用工程自带配色。
+- 想改映射或做整套设计分叉（按主题名换字体/圆角等），看 `lib/theme-follow.js` 头部注释的 `PNDS_THEME_OPTIONS` 各口子。
+
 ## 目录结构
 
 ```
@@ -71,6 +84,7 @@ lib/                      可复用核心，任何 PNDS 工程通用（template 
   seats-store.js          席位记录持久化（token → {id, out}，跨重启；`.pnds-seats.json`）
   protocol.js             Socket.IO 协议：join / claim / 重连恢复 / 控制转发（载荷不透明，字段语义在作品层）/ 席位记录 / 重配 / 广播
   lifecycle.js            优雅关闭
+  theme-follow.js         主题跟随（App ≥ v1.2.3，可选）：消费 pnds:theme 消息（见下文「主题跟随」）
   qr.js                   performer 页面 QR 码（GET /qr）
 audio/                    作品音频语义层：推子 → synth 参数的映射（创作时改这里）
   controller.js           每客户端一个 voice，声道分配，外部 OSC 协议
@@ -101,6 +115,7 @@ docs/                     本指南与交接文档
 | 改声音本身（波形、效果） | `supercollider/source/template-sine.scd`，然后重新编译 |
 | 改演奏者界面 | `public/performer.js`（p5） |
 | 改监视端 | `public/monitor.js` |
+| 改主题跟随 | `lib/theme-follow.js`（默认映射、onTheme / derive 口子、?theme= 初值） |
 | 调设备演奏序号 | monitor 页 ID 下拉（目标序号需空闲） |
 | 清空设备席位记录（换手机阵容） | monitor 页 **重配 ID** 按钮，或删除 `.pnds-seats.json` 后重启 |
 | 加 Socket.IO 事件 | `public/shared.js`（事件名）+ `lib/protocol.js`（处理——核心协议语义，一般不需要） |

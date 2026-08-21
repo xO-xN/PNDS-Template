@@ -51,6 +51,24 @@
 
     <script>
       if (window.PNDS_IS_MONITOR) {
+        // Theme following (spec §5.3): the monitor page follows the App's
+        // pushed theme. This page draws with p5 (no CSS variables), so it
+        // consumes the palette through the onTheme callback instead —
+        // monitor.js defines window.applyPndsTheme and reads the THEME
+        // values every frame. The options global must exist before the
+        // module loads.
+        window.PNDS_THEME_OPTIONS = {
+          applyVariables: false,
+          onTheme: function (name, palette) {
+            window.PNDS_LAST_THEME = { name: name, palette: palette };
+            if (typeof window.applyPndsTheme === 'function') {
+              window.applyPndsTheme(name, palette);
+            }
+          },
+        };
+        document.write(
+          '\x3Cscript src="/__pnds/theme-follow.js"\x3E\x3C/script\x3E',
+        );
         document.write('\x3Cscript src="monitor.js"\x3E\x3C/script\x3E');
       } else {
         document.write('\x3Cscript src="performer.js"\x3E\x3C/script\x3E');

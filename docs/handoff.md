@@ -9,6 +9,7 @@
 - `server.js` 只做编排（挂载协议、生命周期），不含业务算法。Socket.IO 协议语义（join / claim / 重连恢复 / 控制转发 / 席位记录与重配 / 广播）在 `lib/protocol.js`。
 - `lib/seats-store.js` 是席位持久化核心（claim token → {id, out}，跨重启），状态文件默认在工程根 `.pnds-seats.json`（`PNDS_SEATS_FILE` 可重定位）；推子状态刻意留在内存（protocol.js 的 lastControls）——它只需扛锁屏重连，不需扛重启。
 - `public/shared.js` 是浏览器与 server 的**单一事实来源**（事件名、频率范围、常量），必须保持 UMD 形态（浏览器全局 `window.PNDS` + Node `module.exports`）。
+- `lib/theme-follow.js` 是主题跟随参考实现（spec §5.3，自 Multichannel Signal Generator **逐字节拷贝**——它按 MSG 代码风格书写（无分号/单引号），与本仓库其余 lib 风格不同，属有意为之：字节一致便于三仓库同步与 diff）：UMD（浏览器全局 `PNDS_THEME` 自接线 + Node 导出供测试），是唯一被浏览器加载的 lib/ 文件，经 monitor 端口的 `GET /__pnds/theme-follow.js` 提供。
 
 ## 端口约定
 
@@ -50,11 +51,14 @@
 - 三档音区 switch（2026-08-14）：performer 页状态文字下方居中的三位置 switch（1 低音 / 2 中音 / 3 高音），切换左侧 FREQ 推子的频率区段。`public/shared.js` 的 `registers` 是单一事实来源：每区 `freqRange` + `freqTicks`，中心音 **E6 / A5 / D5**（相邻差 7 半音；整体比原 1000–3000 Hz 低一个五度），音名 **A-E-B / D-A-E / G-D-A**——每区的标注音 = 上一区整体下移一个五度（中心音即上一区的下五度；3 为 A5/E6/B6，2 为 D5/A5/E6，1 为 G4/D5/A5）。`control` 消息携带 `range`（1|2|3，缺省 3）；持久化形状由 `ProjectAudio.voiceState()` 唯一定义（**原始推子值** `rawAmp`/`rawFreq` + `range` + `out`），重连时随 `addVoice(id, state)` 重新映射一次建声（避免双重映射）。monitor 页新增 RANGE 列显示每位演奏者的音区。
 - 本模板**不预装 node_modules**（`.gitignore` 排除）；首次使用按 creator-guide 执行 `npm install`。发布包必须预装。
 - p5 是模板的默认视觉方案，不是平台组件。
+- **主题跟随走 spec §5.3（App issue #44/#46 的模板落地）**：monitor 分支加载 `/__pnds/theme-follow.js` 并前置 `window.PNDS_THEME_OPTIONS = { applyVariables: false, onTheme }`——本页 p5 绘制、无 CSS 变量，示范**回调消费**路径（DOM 页零配置走默认 CSS 变量路径的范例是 MSG）。加载顺序契约：模块先于 monitor.js 加载，`?theme=` 初值可能在 monitor.js 之前送达，故 index.html 的 onTheme 钩子把送达 stash 到 `window.PNDS_LAST_THEME`，monitor.js 启动时回放（有测试）。
+- **monitor.js 的主题映射**：`DEFAULT_THEME` 即原硬编码深色（bg [20,22,28] 等）；`applyTheme(name, palette)` 按 key 回退（bg/text/text-secondary→背景/正文/次要文字；**分隔线与控件边框也取 text-secondary**——recessed 的 pill 在浅色主题下对背景仅 ~1.05:1，而本页画布没有卡片间隙或阴影可依赖；控件以 card/text 作底/字），非法或缺失的值保持该角色现色。`draw()` 每帧读 THEME，新调色板下一帧生效；selects/button 的颜色拆到 `styleControlColors`，主题切换时 `restyleControls()` 重上色（stub p5 的黑盒测试覆盖）。
+- **`?theme=<name>` 为前瞻支持**：App 目前不携带该参数；四套主题初值在模块内（复制自 App theme-variables.css）。参数缺席时 monitor 页用 `DEFAULT_THEME`，行为与从前完全一致。
 
 ## 验证命令
 
 ```sh
-npm run check   # 全部 JS 语法检查
-npm test        # node --test（config / audio 契约 / players / protocol）
+npm run check   # 全部 JS 语法检查（含 lib/theme-follow.js）
+npm test        # node --test（config / audio 契约 / players / protocol / seats / shared / client / integration / theme-follow，共 100 个）
 PNDS App → Settings → Developer Tools → Compile SynthDef   # 重新编译 SynthDef
 ```

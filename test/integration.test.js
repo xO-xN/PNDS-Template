@@ -487,4 +487,17 @@ test("score server: health, join, control, set-out, reconnect, restart seats, re
 
   const monitorHtml = await monitorResponse.text();
   assert.match(monitorHtml, /monitor\.js/);
+
+  // --- theme following (spec §5.3): the monitor branch loads the
+  // module from the App-contract namespace; the performer port, which
+  // also serves static files, does not expose it ---
+  assert.match(monitorHtml, /\/__pnds\/theme-follow\.js/);
+  const themeModule = await fetch(`${MONITOR_URL}/__pnds/theme-follow.js`);
+  assert.equal(themeModule.status, 200);
+  assert.match(themeModule.headers.get("content-type"), /javascript/);
+  assert.match(await themeModule.text(), /pnds:theme/);
+  const performerThemeModule = await fetch(
+    `${PERFORMER_URL}/__pnds/theme-follow.js`,
+  );
+  assert.equal(performerThemeModule.status, 404);
 });

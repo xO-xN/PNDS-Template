@@ -96,6 +96,15 @@ monitorApp.get(
   qrHandler(`http://${hostLanIp}:${serverConfig.performerPort}/`),
 );
 
+// The one lib/ file the monitor page loads in the browser: the
+// theme-bridge module (spec §5.3), served under the App-contract
+// namespace like /__pnds/health. Monitor port only — the performer
+// branch of the page never loads it and keeps the project's own
+// colors.
+monitorApp.get("/__pnds/theme-follow.js", (request, response) => {
+  response.sendFile(path.join(PROJECT_ROOT, "lib", "theme-follow.js"));
+});
+
 // ------------------------------------------------------------
 // Audio layer
 // ------------------------------------------------------------

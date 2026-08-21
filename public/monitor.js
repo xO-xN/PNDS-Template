@@ -34,6 +34,76 @@ const SELECT_WIDTH = 64;
 const ID_SELECT_WIDTH = 56;
 const RESET_WIDTH = 96;
 
+// Theme (spec §5.3 "Theme Following"): the project's own dark colors
+// until the App pushes a palette (lib/theme-follow.js delivers it to
+// window.applyPndsTheme). draw() reads these every frame, so a new
+// palette takes effect on the next frame — no redraw orchestration.
+const DEFAULT_THEME = {
+  bg: [20, 22, 28],
+  text: [232, 236, 244],
+  muted: [160, 170, 190],
+  line: [42, 46, 58],
+  control: { background: "#22262f", color: "#e8ecf4", border: "#3a4050" },
+};
+
+let THEME = DEFAULT_THEME;
+
+// The ?theme= first-frame delivery can arrive before this script runs
+// (theme-follow.js loads first); index.html stashes it for replay here.
+window.applyPndsTheme = applyTheme;
+if (window.PNDS_LAST_THEME) {
+  applyTheme(window.PNDS_LAST_THEME.name, window.PNDS_LAST_THEME.palette);
+}
+
+function isHexColor(value) {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function hexToRgb(hex) {
+  if (!isHexColor(hex)) {
+    return null;
+  }
+
+  return [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ];
+}
+
+function pickRgb(palette, key, fallback) {
+  return hexToRgb(palette[key]) || fallback;
+}
+
+function pickColor(palette, key, fallback) {
+  return isHexColor(palette[key]) ? palette[key] : fallback;
+}
+
+// Maps an App palette onto the page's drawing roles. Per-key fallbacks:
+// a palette missing or carrying an unparsable value keeps the current
+// color for that role (the App's tokens are hex today, but the contract
+// does not promise the notation forever). Separators and control
+// borders take text-secondary: the recessed pill token is nearly
+// invisible against the light themes' backgrounds, and this canvas has
+// no card gaps or shadows to fall back on.
+function applyTheme(name, palette) {
+  const secondary = pickRgb(palette, "text-secondary", null);
+
+  THEME = {
+    bg: pickRgb(palette, "bg", THEME.bg),
+    text: pickRgb(palette, "text", THEME.text),
+    muted: secondary || THEME.muted,
+    line: secondary || THEME.line,
+    control: {
+      background: pickColor(palette, "card", THEME.control.background),
+      color: pickColor(palette, "text", THEME.control.color),
+      border: pickColor(palette, "text-secondary", THEME.control.border),
+    },
+  };
+
+  restyleControls();
+}
+
 client.onClients((next) => {
   const idsChanged =
     next.length !== clients.length ||
@@ -66,12 +136,29 @@ function windowResized() {
 // Seat reset
 // ------------------------------------------------------------
 
+// The theme colors of a p5 DOM control (selects, buttons) — separated
+// from the geometry styles so a palette arriving after setup() can
+// restyle the live controls.
+function styleControlColors(control) {
+  control.style("background", THEME.control.background);
+  control.style("color", THEME.control.color);
+  control.style("border", "1px solid " + THEME.control.border);
+}
+
+function restyleControls() {
+  const controls = [resetButton, ...selects, ...idSelects];
+
+  for (const control of controls) {
+    if (control) {
+      styleControlColors(control);
+    }
+  }
+}
+
 function createResetButton() {
   resetButton = createButton("重配 ID");
   resetButton.mousePressed(requestResetIds);
-  resetButton.style("background", "#22262f");
-  resetButton.style("color", "#e8ecf4");
-  resetButton.style("border", "1px solid #3a4050");
+  styleControlColors(resetButton);
   resetButton.style("border-radius", "6px");
   resetButton.style("padding", "6px 12px");
   resetButton.style("font-size", "14px");
@@ -124,9 +211,7 @@ function removeSelects() {
 }
 
 function styleSelect(select, width) {
-  select.style("background", "#22262f");
-  select.style("color", "#e8ecf4");
-  select.style("border", "1px solid #3a4050");
+  styleControlColors(select);
   select.style("border-radius", "6px");
   select.style("padding", "4px 8px");
   select.style("font-size", "14px");
@@ -239,7 +324,7 @@ function tableY() {
 // ------------------------------------------------------------
 
 function draw() {
-  background(20, 22, 28);
+  background(THEME.bg);
 
   if (clients.length === 0) {
     drawEmpty();
@@ -255,7 +340,7 @@ function draw() {
 function drawEmpty() {
   textAlign(CENTER, CENTER);
   textSize(16);
-  fill(120, 130, 150);
+  fill(THEME.muted);
   text("Waiting for performers…", width / 2, height / 2);
 }
 
@@ -263,7 +348,7 @@ function drawHeader() {
   const x = tableX();
   const y = tableY();
 
-  fill(160, 170, 190);
+  fill(THEME.muted);
   textAlign(LEFT, CENTER);
   textSize(12);
   text("ID", x + 16, y + HEADER_HEIGHT / 2);
@@ -272,7 +357,7 @@ function drawHeader() {
   text("RANGE", x + 348, y + HEADER_HEIGHT / 2);
   text("OUT CH", x + 440, y + HEADER_HEIGHT / 2);
 
-  stroke(42, 46, 58);
+  stroke(THEME.line);
   line(x, y + HEADER_HEIGHT, x + TABLE_WIDTH, y + HEADER_HEIGHT);
 }
 
@@ -280,13 +365,13 @@ function drawRow(client, y) {
   const x = tableX();
 
   // The seat number is an idSelect positioned at x + 8, not text.
-  fill(232, 236, 244);
+  fill(THEME.text);
   textAlign(LEFT, CENTER);
   textSize(15);
   text(client.amp.toFixed(3), x + 96, y + ROW_HEIGHT / 2);
   text(Math.round(client.freq) + " Hz", x + 216, y + ROW_HEIGHT / 2);
   text(String(client.register), x + 348, y + ROW_HEIGHT / 2);
 
-  stroke(42, 46, 58);
+  stroke(THEME.line);
   line(x, y + ROW_HEIGHT, x + TABLE_WIDTH, y + ROW_HEIGHT);
 }

@@ -14,6 +14,7 @@ A ready-to-run PNDS digital score project skeleton with minimal working features
 - **Audio**: one sine voice per client, 16-channel output (odd/even ids default to channels 1/2)
 - **Monitor**: real-time client amp/freq display, per-client output channel reassignment
 - **Reconnect recovery**: clients recover their id and fader state after a disconnect
+- **Theme following**: inside PNDS App (≥ v1.2.3) the monitor page follows the App color theme (all four themes) — the spec §5.3 optional bridge, consumed here through the p5 `onTheme` callback (`lib/theme-follow.js`, served at `/__pnds/theme-follow.js`)
 - **Three audio modes**: `internal` (scsynth), `external` (custom OSC), `none` (UI/network only)
 
 ### Getting Started
@@ -53,6 +54,7 @@ PNDS 数字乐谱工程模板：可直接运行的骨架 + 最小功能实现。
 - **音频**：每客户端一个 sine voice，16 声道输出（默认奇偶 id 分到声道 1/2）
 - **监视端**：实时显示客户端 amp / freq，可重新分配每个客户端的输出声道
 - **断线重连**：客户端断线后自动恢复 id 与推子状态
+- **主题跟随**：在 PNDS App（≥ v1.2.3）中运行时，monitor 页实时跟随 App 主题（全部四套）——spec §5.3 可选契约，本模板经 p5 的 `onTheme` 回调消费（`lib/theme-follow.js`，经 `/__pnds/theme-follow.js` 加载）
 - **三音频模式**：`internal`（scsynth）、`external`（自定义 OSC）、`none`（仅页面/网络）
 
 ### 开始
