@@ -69,6 +69,23 @@
         document.write(
           '\x3Cscript src="/__pnds/theme-follow.js"\x3E\x3C/script\x3E',
         );
+
+        // Locale following (App ≥ v1.3.0): the same push mechanism as
+        // the theme bridge, carrying the App's resolved language code.
+        // The default <html lang> write stays on; monitor.js swaps its
+        // string table through the onLocale callback below. The options
+        // global must exist before the module loads.
+        window.PNDS_LOCALE_OPTIONS = {
+          onLocale: function (locale) {
+            window.PNDS_LAST_LOCALE = locale;
+            if (typeof window.applyPndsLocale === 'function') {
+              window.applyPndsLocale(locale);
+            }
+          },
+        };
+        document.write(
+          '\x3Cscript src="/__pnds/locale-follow.js"\x3E\x3C/script\x3E',
+        );
         document.write('\x3Cscript src="monitor.js"\x3E\x3C/script\x3E');
       } else {
         document.write('\x3Cscript src="performer.js"\x3E\x3C/script\x3E');

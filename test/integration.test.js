@@ -500,4 +500,16 @@ test("score server: health, join, control, set-out, reconnect, restart seats, re
     `${PERFORMER_URL}/__pnds/theme-follow.js`,
   );
   assert.equal(performerThemeModule.status, 404);
+
+  // --- locale following (App ≥ v1.3.0): same exposure rules as the
+  // theme module ---
+  assert.match(monitorHtml, /\/__pnds\/locale-follow\.js/);
+  const localeModule = await fetch(`${MONITOR_URL}/__pnds/locale-follow.js`);
+  assert.equal(localeModule.status, 200);
+  assert.match(localeModule.headers.get("content-type"), /javascript/);
+  assert.match(await localeModule.text(), /pnds:locale/);
+  const performerLocaleModule = await fetch(
+    `${PERFORMER_URL}/__pnds/locale-follow.js`,
+  );
+  assert.equal(performerLocaleModule.status, 404);
 });

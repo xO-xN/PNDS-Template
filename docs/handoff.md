@@ -9,7 +9,8 @@
 - `server.js` 只做编排（挂载协议、生命周期），不含业务算法。Socket.IO 协议语义（join / claim / 重连恢复 / 控制转发 / 席位记录与重配 / 广播）在 `lib/protocol.js`。
 - `lib/seats-store.js` 是席位持久化核心（claim token → {id, out}，跨重启），状态文件默认在工程根 `.pnds-seats.json`（`PNDS_SEATS_FILE` 可重定位）；推子状态刻意留在内存（protocol.js 的 lastControls）——它只需扛锁屏重连，不需扛重启。
 - `public/shared.js` 是浏览器与 server 的**单一事实来源**（事件名、频率范围、常量），必须保持 UMD 形态（浏览器全局 `window.PNDS` + Node `module.exports`）。
-- `lib/theme-follow.js` 是主题跟随参考实现（spec §5.3，自 Multichannel Signal Generator **逐字节拷贝**——它按 MSG 代码风格书写（无分号/单引号），与本仓库其余 lib 风格不同，属有意为之：字节一致便于三仓库同步与 diff）：UMD（浏览器全局 `PNDS_THEME` 自接线 + Node 导出供测试），是唯一被浏览器加载的 lib/ 文件，经 monitor 端口的 `GET /__pnds/theme-follow.js` 提供。
+- `lib/theme-follow.js` 是主题跟随参考实现（spec §5.3，自 Multichannel Signal Generator **逐字节拷贝**——它按 MSG 代码风格书写（无分号/单引号），与本仓库其余 lib 风格不同，属有意为之：字节一致便于三仓库同步与 diff）：UMD（浏览器全局 `PNDS_THEME` 自接线 + Node 导出供测试），经 monitor 端口的 `GET /__pnds/theme-follow.js` 提供。
+- `lib/locale-follow.js` 是语言跟随参考实现（App ≥ v1.3.0 语言桥，App issue #48 / 模板 issue #1），与 theme-follow 同款桥接模块形态与 MSG 代码风格（它是本仓库先写的**范本**，LND / MSG / TND 后续按复制式模式取用）：UMD（浏览器全局 `PNDS_LOCALE` 自接线 + Node 导出供测试），经 monitor 端口的 `GET /__pnds/locale-follow.js` 提供。浏览器加载的 lib/ 文件仅此两枚桥接模块。
 
 ## 端口约定
 
@@ -55,11 +56,13 @@
 - **monitor.js 的主题映射**：`DEFAULT_THEME` 即原硬编码深色（hex 字符串形式）；`applyTheme(name, palette)` **原子应用**——bg 或 text 缺失/为空则整体保留上一主题（绝不跨主题混键，混色正是不可读组合的来源），颜色以 CSS 字符串直接喂给 fill/stroke/background（p5 原生解析 #rrggbb，也兼容未来 rgb()/oklch() 记法）。映射：bg/text/text-secondary→背景/正文/次要文字；**分隔线与控件边框也取 text-secondary**（recessed 的 pill 在浅色主题下对背景仅 ~1.05:1，本页画布没有卡片间隙或阴影可依赖）；控件以 card（缺省回退 bg）/text 作底/字。`draw()` 每帧读 THEME，新调色板下一帧生效。
 - **select 的 WKWebView 修复（v0.3.1，用户报告）**：原生 `<select>` 忽略 CSS background 但应用 CSS color——主题化的深色文字叠在原生深色控件上看不清（lavender 报告）。修复三层：`color-scheme` 按 bg 亮度设到 documentElement（原生闭合控件与弹出列表整体翻转明暗）；select 加 `appearance:none` + 自绘 caret（`caretImage()` 按文字色生成 SVG data URI，`styleControlColors(control, isSelect)`）；文字/底/边框照常 CSS 上色。button 无需 appearance（WKWebView 尊重其 background）。
 - **`?theme=<name>` 为前瞻支持**：App 目前不携带该参数；四套主题初值在模块内（复制自 App theme-variables.css）。参数缺席时 monitor 页用 `DEFAULT_THEME`，行为与从前完全一致。
+- **语言跟随（App ≥ v1.3.0，App issue #48 / 模板 issue #1）**：消息 `{type:'pnds:locale', version:1, locale:'en'|'zh-CN'}`——字段名按主题桥对称约定（`theme` → `locale`），App 侧 T2 落地时需与此一致。模块解析语义：页面声明自己的 `locales`（默认 `['en','zh-CN']`），送达代码先精确匹配（忽略大小写）、再按基础语言（`zh` → `zh-CN`）、最后 `fallback`（默认 `en`）；**解析结果永远是页面声明代码之一**，字串表查找不会 miss；null 仅表示"无送达"（页面保持自带默认）。默认应用写 `<html lang>`（`applyLang:false` 可关）。`?lang=<code>` 首帧：正则只取 `[a-z0-9-]+`（语言标签必为 ASCII，无解码、不会 throw）。monitor 分支前置 `PNDS_LOCALE_OPTIONS = { onLocale }`，onLocale 把送达 stash 到 `window.PNDS_LAST_LOCALE`，monitor.js 启动回放（与 `PNDS_LAST_THEME` 同款契约，有测试）。
+- **monitor.js 的语言映射**：`STRINGS` 按 locale 键控 UI 字串（waiting / reset / resetConfirm / qrAlt；表头 ID / AMP / … 是跨语言技术记号，不入表）；`applyLocale(locale)` 只接受 `STRINGS` 自己的键——渲染不了的语言码保持上一语言；DOM 控件标签重贴（`resetButton.html()`、`qrImage.elt.alt`），`draw()` 每帧读 S，新语言下一帧生效。**无推送时的默认语言是 zh-CN**（原"重配 ID"按钮与确认弹窗即中文原文——不调用该能力时操作面行为与从前一致）；英文为新增翻译。
 
 ## 验证命令
 
 ```sh
-npm run check   # 全部 JS 语法检查（含 lib/theme-follow.js）
-npm test        # node --test（config / audio 契约 / players / protocol / seats / shared / client / integration / theme-follow，共 100 个）
+npm run check   # 全部 JS 语法检查（含 lib/theme-follow.js、lib/locale-follow.js）
+npm test        # node --test（config / audio 契约 / players / protocol / seats / shared / client / integration / theme-follow / locale-follow，共 111 个）
 PNDS App → Settings → Developer Tools → Compile SynthDef   # 重新编译 SynthDef
 ```

@@ -58,6 +58,59 @@ if (window.PNDS_LAST_THEME) {
   applyTheme(window.PNDS_LAST_THEME.name, window.PNDS_LAST_THEME.palette);
 }
 
+// Locale ("Language Following", App ≥ v1.3.0): the same contract as
+// THEME above — the page's own default is Chinese (the operator
+// strings the page shipped before locales existed) until the App
+// pushes a locale (lib/locale-follow.js delivers it to
+// window.applyPndsLocale). draw() reads S every frame; DOM labels are
+// re-rendered in applyLocale, so a new locale lands without redraw
+// orchestration. Table headers (ID / AMP / …) are technical tokens
+// shared by both languages.
+const STRINGS = {
+  en: {
+    waiting: "Waiting for performers…",
+    reset: "Reset IDs",
+    resetConfirm:
+      "Reset the seat id of every device? Each device rejoins with a fresh id and channel assignments reset to defaults.",
+    qrAlt: "QR code for the performer page",
+  },
+  "zh-CN": {
+    waiting: "等待演奏者加入…",
+    reset: "重配 ID",
+    resetConfirm:
+      "重配所有设备的演奏序号？每台设备将重新拿到新的序号，声道分配也会重置。",
+    qrAlt: "演奏者页面二维码",
+  },
+};
+
+let S = STRINGS["zh-CN"];
+
+// The ?lang= first-frame delivery can arrive before this script runs
+// (locale-follow.js loads first); index.html stashes it for replay here.
+window.applyPndsLocale = applyLocale;
+if (window.PNDS_LAST_LOCALE) {
+  applyLocale(window.PNDS_LAST_LOCALE);
+}
+
+// Applies one of STRINGS' own keys — a code the page can't render
+// keeps the previous language. Idempotent: relabeling the same locale
+// writes the same values.
+function applyLocale(locale) {
+  if (!STRINGS[locale]) {
+    return;
+  }
+
+  S = STRINGS[locale];
+
+  if (resetButton) {
+    resetButton.html(S.reset);
+  }
+
+  if (qrImage && qrImage.elt) {
+    qrImage.elt.alt = S.qrAlt;
+  }
+}
+
 function isHexColor(value) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
 }
@@ -143,7 +196,7 @@ client.onClients((next) => {
 function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
   canvas.parent("stage");
-  qrImage = createImg("/qr", "QR code for the performer page");
+  qrImage = createImg("/qr", S.qrAlt);
   createResetButton();
   rebuildSelects();
 }
@@ -201,7 +254,7 @@ function restyleControls() {
 }
 
 function createResetButton() {
-  resetButton = createButton("重配 ID");
+  resetButton = createButton(S.reset);
   resetButton.mousePressed(requestResetIds);
   styleControlColors(resetButton, false);
   resetButton.style("border-radius", "6px");
@@ -215,11 +268,7 @@ function createResetButton() {
 // rejoin with fresh ids in rejoin order. Channel assignments go with
 // them — reset means a new lineup, where the old channels are meaningless.
 function requestResetIds() {
-  if (
-    !window.confirm(
-      "重配所有设备的演奏序号？每台设备将重新拿到新的序号，声道分配也会重置。",
-    )
-  ) {
+  if (!window.confirm(S.resetConfirm)) {
     return;
   }
 
@@ -386,7 +435,7 @@ function drawEmpty() {
   textAlign(CENTER, CENTER);
   textSize(16);
   fill(THEME.muted);
-  text("Waiting for performers…", width / 2, height / 2);
+  text(S.waiting, width / 2, height / 2);
 }
 
 function drawHeader() {

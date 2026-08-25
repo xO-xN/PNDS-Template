@@ -15,6 +15,7 @@ A ready-to-run PNDS digital score project skeleton with minimal working features
 - **Monitor**: real-time client amp/freq display, per-client output channel reassignment
 - **Reconnect recovery**: clients recover their id and fader state after a disconnect
 - **Theme following**: inside PNDS App (≥ v1.2.3) the monitor page follows the App color theme (all four themes) — the spec §5.3 optional bridge, consumed here through the p5 `onTheme` callback (`lib/theme-follow.js`, served at `/__pnds/theme-follow.js`)
+- **Locale following**: inside PNDS App (≥ v1.3.0) the monitor page follows the App interface language (`en` / `zh-CN`) — the optional language bridge (same push mechanism as themes), consumed here through the `onLocale` callback swapping monitor.js string tables (`lib/locale-follow.js`, served at `/__pnds/locale-follow.js`)
 - **Three audio modes**: `internal` (scsynth), `external` (custom OSC), `none` (UI/network only)
 
 ### Getting Started
@@ -55,6 +56,7 @@ PNDS 数字乐谱工程模板：可直接运行的骨架 + 最小功能实现。
 - **监视端**：实时显示客户端 amp / freq，可重新分配每个客户端的输出声道
 - **断线重连**：客户端断线后自动恢复 id 与推子状态
 - **主题跟随**：在 PNDS App（≥ v1.2.3）中运行时，monitor 页实时跟随 App 主题（全部四套）——spec §5.3 可选契约，本模板经 p5 的 `onTheme` 回调消费（`lib/theme-follow.js`，经 `/__pnds/theme-follow.js` 加载）
+- **语言跟随**：在 PNDS App（≥ v1.3.0）中运行时，monitor 页实时跟随 App 界面语言（`en` / `zh-CN`）——可选语言桥（与主题桥同一套推送机制），本模板经 `onLocale` 回调切换 monitor.js 字串表（`lib/locale-follow.js`，经 `/__pnds/locale-follow.js` 加载）
 - **三音频模式**：`internal`（scsynth）、`external`（自定义 OSC）、`none`（仅页面/网络）
 
 ### 开始

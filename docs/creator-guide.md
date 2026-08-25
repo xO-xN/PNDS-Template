@@ -69,6 +69,20 @@ PNDS App（≥ v1.2.3）会把当前主题（Lavender / Sand / Stage / Brutal）
 - performer 分支不加载该模块、永远用工程自带配色。
 - 想改映射或做整套设计分叉（按主题名换字体/圆角等），看 `lib/theme-follow.js` 头部注释的 `PNDS_THEME_OPTIONS` 各口子。
 
+## 语言跟随（可选，App 集成）
+
+PNDS App（≥ v1.3.0）会把当前界面语言（解析后的语言代码，现取 `en` / `zh-CN`）经跨域 `postMessage`（`pnds:locale` v1 消息）推给 monitor 页，工程**可选**消费。推送机制与主题桥完全同一套（单向、尽力而为、最新值胜、幂等；不实现则完全不受影响）。本模板内置参考实现 `lib/locale-follow.js`，由 server 经 monitor 端口的 `GET /__pnds/locale-follow.js` 提供给浏览器。
+
+本模板的 monitor 页示范**回调消费**路径：`public/index.html` 在 monitor 分支加载模块并设置 `window.PNDS_LOCALE_OPTIONS = { onLocale }`，`public/monitor.js` 的 `applyLocale()` 切换 `STRINGS` 字串表并重贴 DOM 控件标签，`draw()` 每帧读取 S——新语言下一帧即生效，无需重绘编排（与主题同一套消费模式）。模块默认还会把解析后的语言写进 `<html lang>`（`applyLang: false` 可关）；纯 DOM 页面可零配置直接用这个默认路径，再挂一个 `onLocale` 换字串表即可。
+
+要点：
+
+- 消息 best-effort、"最新值覆盖"：App 在 iframe 加载、切语言、窗口重获焦点时重推；页面幂等应用（重复送达无副作用），未知/畸形消息静默忽略。
+- 页面支持哪些语言由自己声明（`locales`，默认 `['en', 'zh-CN']`）：送达代码先精确匹配（忽略大小写），再按基础语言匹配（`zh` → `zh-CN`），都不中则用 `fallback`（默认 `en`）。解析结果永远是页面自己声明的代码之一——字串表查找不会 miss。
+- 加载时支持 `?lang=<code>` 作为首帧初值（App v1.3.0 起携带）；缺席时用工程自带语言（本模板即 monitor.js 里 `STRINGS` 的中文默认——不调用该能力时，操作面文案与从前一致）。
+- performer 分支不加载该模块、永远用工程自带语言。
+- 想改默认语言 / 加语言，改 `public/monitor.js` 的 `STRINGS` 与初始化的 `S`（加语言时同步在 `public/index.html` 的 `PNDS_LOCALE_OPTIONS` 声明 `locales`），各口子见 `lib/locale-follow.js` 头部注释。
+
 ## 目录结构
 
 ```
@@ -85,6 +99,7 @@ lib/                      可复用核心，任何 PNDS 工程通用（template 
   protocol.js             Socket.IO 协议：join / claim / 重连恢复 / 控制转发（载荷不透明，字段语义在作品层）/ 席位记录 / 重配 / 广播
   lifecycle.js            优雅关闭
   theme-follow.js         主题跟随（App ≥ v1.2.3，可选）：消费 pnds:theme 消息（见下文「主题跟随」）
+  locale-follow.js        语言跟随（App ≥ v1.3.0，可选）：消费 pnds:locale 消息（见下文「语言跟随」）
   qr.js                   performer 页面 QR 码（GET /qr）
 audio/                    作品音频语义层：推子 → synth 参数的映射（创作时改这里）
   controller.js           每客户端一个 voice，声道分配，外部 OSC 协议
@@ -116,6 +131,7 @@ docs/                     本指南与交接文档
 | 改演奏者界面 | `public/performer.js`（p5） |
 | 改监视端 | `public/monitor.js` |
 | 改主题跟随 | `lib/theme-follow.js`（默认映射、onTheme / derive 口子、?theme= 初值） |
+| 改界面语言 / 加语言 | `public/monitor.js` 的 `STRINGS`（加语言同步加 `locales`；locales / fallback 口子见 `lib/locale-follow.js`） |
 | 调设备演奏序号 | monitor 页 ID 下拉（目标序号需空闲） |
 | 清空设备席位记录（换手机阵容） | monitor 页 **重配 ID** 按钮，或删除 `.pnds-seats.json` 后重启 |
 | 加 Socket.IO 事件 | `public/shared.js`（事件名）+ `lib/protocol.js`（处理——核心协议语义，一般不需要） |
