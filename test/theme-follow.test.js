@@ -209,6 +209,15 @@ test('?theme= paints a first frame; absence keeps the page\'s own colors', () =>
   assert.equal(initialVariables('?theme=brutal')['--accent'], '#ff5722')
   assert.equal(initialVariables('?theme=lavender')['--bg'], '#eef0f8')
 
+  // v1.3.3 (#91): the App renamed the default theme's id lavender →
+  // pond; the legacy id stays as an alias of the same palette so pages
+  // follow Apps of either vintage.
+  assert.equal(initialTheme('?theme=pond'), 'pond')
+  assert.equal(THEME_PALETTES.pond, THEME_PALETTES.lavender)
+  assert.equal(initialVariables('?theme=pond')['--bg'], '#eef0f8')
+  const pondMessage = themeFromMessage({ ...SPEC_MESSAGE, theme: 'pond' })
+  assert.equal(pondMessage.theme, 'pond')
+
   // At least a light/dark fork between themes.
   const light = initialVariables('?theme=lavender')
   const dark = initialVariables('?theme=stage')
