@@ -1,6 +1,9 @@
-# PNDS Template — Creator Guide（创作者开始指南）
+# PNDS Template — 实现手册
 
-这是一个可直接运行的 PNDS 数字乐谱工程骨架，带最小功能实现，适合作为新作品的起点。
+本手册讲这个模板工程本身：示例作品的行为规格、目录职责、创作时改哪里。
+从零到发布的工作流（建仓 → AI 迭代 → 试运行 → 打包发布）住 PNDS App 的[创作指南](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/template-guide.md)，App 内帮助中心同名可查。
+
+平台契约（manifest / runtime / 打包 / OSC）与模块手册住 [PNDS App 仓库](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/README.md)；装机机器上也可直接读本地语料 `/Applications/PNDS.app/Contents/Resources/help/zh-CN/`（与装机 App 版本严格一致，英文树换 `en`）。AI agent 的取读入口见根目录 [AGENTS.md](../AGENTS.md)。
 
 ## 快速开始
 
@@ -32,11 +35,11 @@ npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
 | Performer | `http://<Host-LAN-IP>:6868/` | 演奏者触摸界面（手机横屏） |
 | Monitor | `http://<Host-LAN-IP>:6869/` | 监视端：客户端列表与声道分配 |
 
-默认端口来自 `manifest.json` 的 `scoreServer.performerPort` / `monitorPort`——这是**唯一来源**。`public/shared.js` 和浏览器都会自动读取，不需要手动同步。
+默认端口来自 `manifest.json` 的 `scoreServer.performerPort` / `monitorPort`——这是**唯一来源**。`public/shared.js` 和浏览器都会自动读取，不需要手动同步。端口惯例与选择建议见参考手册的 [manifest.md「端口」节](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/manifest.md)。
 
-端口建议：**没有特殊理由，沿用本模板的 6868（performer）/ 6869（monitor）**——这是平台惯例，官方工程与内置工具都用这对端口，PNDS App 的端口管理面板也以它为参考。确需换端口时，避开系统保留端口（1–1023）、macOS 临时端口范围（49152–65535，出站连接可能随机占用）与常见服务端口（AirPlay 5000/7000、开发服务器 3000/5173/8000/8080、数据库 3306/5432/6379）；两个使用相同端口对的工程不能在同一台机器上同时运行。完整建议见 PNDS App 仓库的 `docs/PNDS_CREATOR_GUIDE.md`。
+## 作品规格（当前实现，随创作改写）
 
-## 作品规格（本模板实现的功能）
+从模板创建时，此处描述的是模板示例；从「开始」新作品起（见 [start.md](start.md)），这里就是**本作品的规格文档**——行为改动时同步改写它，保持与代码一致。
 
 - 演奏者界面：**手机横屏**触摸；竖屏时提示旋转。左半屏是 **FREQ 推子**（音高），右半屏是 **AMP 推子**（音量）。
 - 推子值经 Socket.IO 发到 score server，由 server 转为 OSC 控制 SuperCollider。
@@ -50,38 +53,25 @@ npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
 - 客户端上限 = 输出声道数（manifest 默认 16；App 注入 `PNDS_AUDIO_OUTPUT_CHANNELS` 时以注入值为准）；满员时新客户端被拒绝。
 - 默认声道：**奇数 id → 声道 1，偶数 id → 声道 2**（相对 `PNDS_AUDIO_OUTPUT_BUS`）。
 - Monitor 端可把任意客户端的输出声道改为 1..N（N = server 实际解析的输出声道数，经 `__config.js` 注入浏览器，与 server 校验同源）；允许重叠。Monitor 页下方显示 **performer 页面的 QR 码**（`GET /qr`，由 `lib/qr.js` 生成）。
-- **Monitor 端可调演奏序号**（ID 下拉，与声道分配同款交互）：把设备移到空闲序号——分配、voice（带当前状态原位重建）与席位记录一并迁移，performer 页面经 `joined` 事件自动跟进新序号。目标序号被在线设备占用时不动；被陈旧席位记录占用时覆盖（操作员意图优先）。
+- **Monitor 端可调演奏序号**（ID 下拉，与声道分配同款交互）：把设备移到空闲序号——分配、voice（带当前状态原位重建）与座位记录一并迁移，performer 页面经 `joined` 事件自动跟进新序号。目标序号被在线设备占用时不动；被陈旧座位记录占用时覆盖（操作员意图优先）。
 - 客户端断开后，重连（同一浏览器，token 保存在 localStorage）会**恢复原 id 与最后推子状态**；恢复**一次到位**——voice 直接以持久化状态创建（单条 `/s_new` 携带正确的音量/频率/声道），不经过默认值中间态，锁屏重连不会在错误声道出声。
-- **席位记录跨重启持久**：server 把每台设备的演奏序号与声道（`token → {id, out}`）写进工程根目录的 `.pnds-seats.json`，重新开启工程时同一台设备（同一浏览器）自动拿回原序号与原声道；推子状态（freq/amp）不跨重启，重启后归零。席位为其设备保留——新设备不会占用已记录的序号；陈旧记录（不会再来的手机）占满席位时，用 monitor 页右上角的 **重配 ID** 按钮清空全部记录（在线设备会被断开重连、按重连顺序拿新序号，声道回默认）。测试或 App 可用环境变量 `PNDS_SEATS_FILE` 把状态文件指到别处。
+- **座位记录跨重启持久**：server 把每台设备的演奏序号与声道（`token → {id, out}`）写进工程根目录的 `.pnds-seats.json`，重新开启工程时同一台设备（同一浏览器）自动拿回原序号与原声道；推子状态（freq/amp）不跨重启，重启后归零。座位为其设备保留——新设备不会占用已记录的序号；陈旧记录（不会再来的手机）占满座位时，用 monitor 页右上角的 **重配 ID** 按钮清空全部记录（在线设备会被断开重连、按重连顺序拿新序号，声道回默认）。测试或 App 可用环境变量 `PNDS_SEATS_FILE` 把状态文件指到别处。
 - Performer 状态行显示 **`ID: N CH: N`**：CH 来自 state 广播，monitor 端改道后实时更新。
 - score server 的终端日志记录协议生命周期（join / disconnect / rejected）——现场排查"幽灵客户端"循环重连时看这里。
 
+座位机制的完整故事（claim token、分配与恢复、协议消息）见模块手册的[乐手身份与座位](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/players.md)。
+
 ## 主题跟随（可选，App 集成）
 
-PNDS App（≥ v1.2.3）会把当前主题（Lavender / Sand / Stage / Brutal）经跨域 `postMessage` 推给 monitor 页（score project spec §5.3），工程**可选**消费。本模板内置了参考实现 `lib/theme-follow.js`，由 server 经 monitor 端口的 `GET /__pnds/theme-follow.js` 提供给浏览器。
+PNDS App（≥ v1.2.3）会把当前主题（Lavender / Sand / Stage / Brutal）经跨域 `postMessage` 推给 monitor 页，工程**可选**消费；消息 best-effort、最新值覆盖、页面幂等应用。本模板的 monitor 页用 **p5 绘制（无 CSS 变量）**，示范**回调消费**路径：`public/index.html` 在 monitor 分支加载 `lib/theme-follow.js`（经 `GET /__pnds/theme-follow.js`）并设置 `window.PNDS_THEME_OPTIONS = { applyVariables: false, onTheme: ... }`，`public/monitor.js` 把 palette 映射成画布颜色，新调色板下一帧生效。DOM 页面（无 canvas）可零配置直接用默认的 CSS 变量路径。performer 分支不加载该模块、永远用工程自带配色（缺席 `?theme=` 初值时 monitor 亦用 `monitor.js` 里 `DEFAULT_THEME` 的深色）。
 
-本模板的 monitor 页用 **p5 绘制（无 CSS 变量）**，示范的是**回调消费**路径：`public/index.html` 在 monitor 分支加载模块并设置 `window.PNDS_THEME_OPTIONS = { applyVariables: false, onTheme: ... }`，`public/monitor.js` 的 `applyTheme()` 把 palette 映射成画布颜色，`draw()` 每帧读取 THEME——新调色板下一帧即生效，无需重绘编排。DOM 页面（无 canvas）则可零配置直接用默认的 CSS 变量路径（见 Multichannel Signal Generator）。
-
-要点：
-
-- 消息 best-effort、"最新值覆盖"：App 在 iframe 加载、切主题、窗口重获焦点时重推；页面幂等应用（重复送达无副作用），未知/畸形消息静默忽略。
-- 加载时支持 `?theme=<name>` 作为首帧初值（App 目前不携带，缺席时用工程自带配色——本模板即 monitor.js 里 `DEFAULT_THEME` 的深色）。
-- performer 分支不加载该模块、永远用工程自带配色。
-- 想改映射或做整套设计分叉（按主题名换字体/圆角等），看 `lib/theme-follow.js` 头部注释的 `PNDS_THEME_OPTIONS` 各口子。
+模块的消息协议、选项口子与映射细节见模块手册的[主题跟随](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/theme-follow.md)。
 
 ## 语言跟随（可选，App 集成）
 
-PNDS App（≥ v1.3.0）会把当前界面语言（解析后的语言代码，现取 `en` / `zh-CN`）经跨域 `postMessage`（`pnds:locale` v1 消息）推给 monitor 页，工程**可选**消费。推送机制与主题桥完全同一套（单向、尽力而为、最新值胜、幂等；不实现则完全不受影响）。本模板内置参考实现 `lib/locale-follow.js`，由 server 经 monitor 端口的 `GET /__pnds/locale-follow.js` 提供给浏览器。
+PNDS App（≥ v1.3.0）会把当前界面语言（`en` / `zh-CN`）经 `pnds:locale` v1 消息推给 monitor 页（与主题桥同一套机制：单向、尽力而为、最新值胜、幂等；不实现则完全不受影响）。本模板的 monitor 页：`public/index.html` 在 monitor 分支加载 `lib/locale-follow.js` 并设置 `window.PNDS_LOCALE_OPTIONS = { onLocale }`，`public/monitor.js` 的 `applyLocale()` 切换 `STRINGS` 字串表并重贴 DOM 控件标签，新语言下一帧生效。**无推送时的默认语言是 zh-CN**（不调用该能力时操作面文案与从前一致）；页面支持哪些语言由 `locales` 声明（默认 `['en', 'zh-CN']`）。performer 分支不加载该模块。
 
-本模板的 monitor 页示范**回调消费**路径：`public/index.html` 在 monitor 分支加载模块并设置 `window.PNDS_LOCALE_OPTIONS = { onLocale }`，`public/monitor.js` 的 `applyLocale()` 切换 `STRINGS` 字串表并重贴 DOM 控件标签，`draw()` 每帧读取 S——新语言下一帧即生效，无需重绘编排（与主题同一套消费模式）。模块默认还会把解析后的语言写进 `<html lang>`（`applyLang: false` 可关）；纯 DOM 页面可零配置直接用这个默认路径，再挂一个 `onLocale` 换字串表即可。
-
-要点：
-
-- 消息 best-effort、"最新值覆盖"：App 在 iframe 加载、切语言、窗口重获焦点时重推；页面幂等应用（重复送达无副作用），未知/畸形消息静默忽略。
-- 页面支持哪些语言由自己声明（`locales`，默认 `['en', 'zh-CN']`）：送达代码先精确匹配（忽略大小写），再按基础语言匹配（`zh` → `zh-CN`），都不中则用 `fallback`（默认 `en`）。解析结果永远是页面自己声明的代码之一——字串表查找不会 miss。
-- 加载时支持 `?lang=<code>` 作为首帧初值（App v1.3.0 起携带）；缺席时用工程自带语言（本模板即 monitor.js 里 `STRINGS` 的中文默认——不调用该能力时，操作面文案与从前一致）。
-- performer 分支不加载该模块、永远用工程自带语言。
-- 想改默认语言 / 加语言，改 `public/monitor.js` 的 `STRINGS` 与初始化的 `S`（加语言时同步在 `public/index.html` 的 `PNDS_LOCALE_OPTIONS` 声明 `locales`），各口子见 `lib/locale-follow.js` 头部注释。
+加语言：改 `public/monitor.js` 的 `STRINGS` 与初始化的 `S`，同步在 `public/index.html` 的 `PNDS_LOCALE_OPTIONS` 声明 `locales`。模块的解析语义（精确匹配 → 基础语言匹配 → fallback）与口子见模块手册的[语言跟随](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/locale-follow.md)。
 
 ## 目录结构
 
@@ -94,12 +84,12 @@ lib/                      可复用核心，任何 PNDS 工程通用（template 
   health.js               /__pnds/health
   osc-transport.js        UDP OSC 传输（osc-min + dgram）
   audio-engine.js         scsynth 会话生命周期（bus / group / synthdef 加载）
-  players.js              客户端 id 分配与重连恢复（claim token；已记录席位优先、他人席位保留）
-  seats-store.js          席位记录持久化（token → {id, out}，跨重启；`.pnds-seats.json`）
-  protocol.js             Socket.IO 协议：join / claim / 重连恢复 / 控制转发（载荷不透明，字段语义在作品层）/ 席位记录 / 重配 / 广播
+  players.js              客户端 id 分配与重连恢复（claim token；已记录座位优先、他人座位保留）
+  seats-store.js          座位记录持久化（token → {id, out}，跨重启；`.pnds-seats.json`）
+  protocol.js             Socket.IO 协议：join / claim / 重连恢复 / 控制转发（载荷不透明，字段语义在作品层）/ 座位记录 / 重配 / 广播
   lifecycle.js            优雅关闭
-  theme-follow.js         主题跟随（App ≥ v1.2.3，可选）：消费 pnds:theme 消息（见下文「主题跟随」）
-  locale-follow.js        语言跟随（App ≥ v1.3.0，可选）：消费 pnds:locale 消息（见下文「语言跟随」）
+  theme-follow.js         主题跟随（App ≥ v1.2.3，可选）：消费 pnds:theme 消息（见上文「主题跟随」）
+  locale-follow.js        语言跟随（App ≥ v1.3.0，可选）：消费 pnds:locale 消息（见上文「语言跟随」）
   qr.js                   performer 页面 QR 码（GET /qr）
 audio/                    作品音频语义层：推子 → synth 参数的映射（创作时改这里）
   controller.js           每客户端一个 voice，声道分配，外部 OSC 协议
@@ -116,8 +106,8 @@ supercollider/
     template-sine.scd     本模板的 sine voice 定义
   debug/                  External debug bridge（创作期工具）
   synthdefs/              已编译 .scsyndef（运行时 artifact，manifest 引用）
-test/                     node --test 回归测试
-docs/                     本指南与交接文档
+test/                     node --test 回归测试（AI 编程助手改工程后跑它验证，见 AGENTS.md）
+docs/                     本手册
 ```
 
 ## 创作时改什么
@@ -133,7 +123,7 @@ docs/                     本指南与交接文档
 | 改主题跟随 | `lib/theme-follow.js`（默认映射、onTheme / derive 口子、?theme= 初值） |
 | 改界面语言 / 加语言 | `public/monitor.js` 的 `STRINGS`（加语言同步加 `locales`；locales / fallback 口子见 `lib/locale-follow.js`） |
 | 调设备演奏序号 | monitor 页 ID 下拉（目标序号需空闲） |
-| 清空设备席位记录（换手机阵容） | monitor 页 **重配 ID** 按钮，或删除 `.pnds-seats.json` 后重启 |
+| 清空设备座位记录（换手机阵容） | monitor 页 **重配 ID** 按钮，或删除 `.pnds-seats.json` 后重启 |
 | 加 Socket.IO 事件 | `public/shared.js`（事件名）+ `lib/protocol.js`（处理——核心协议语义，一般不需要） |
 | 改推子频率范围 / 音区 | `public/shared.js` 的 `registers`（每区 `freqRange` + `freqTicks`；页面显示、刻度与 server 发声自动同步，无需改 `audio/controller.js`） |
 | 改客户端上限 | `manifest.json` 的 `audio.outputChannels`（id 上限 = 输出声道数） |
@@ -155,7 +145,7 @@ docs/                     本指南与交接文档
 - 在 PNDS App 中打开本工程，`Settings → Developer Tools → Compile SynthDef`（使用本机安装的 SuperCollider）；
 - 或在本机自行运行 sclang。
 
-编译契约：**SynthDef 符号名 = 产物文件名 = manifest 引用**（本模板为 `template-sine`；带连字符的名字在 .scd 中须写作 `'template-sine'` 引号符号形式）。编译产物写入 `supercollider/synthdefs/template-sine.scsyndef`，App 会在编译后逐个校验 manifest 引用的产物。
+编译契约见参考手册的 [supercollider.md](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/supercollider.md)；本模板的实例：**SynthDef 符号名 = 产物文件名 = manifest 引用**（`template-sine`；带连字符的名字在 .scd 中须写作 `'template-sine'` 引号符号形式），产物写入 `supercollider/synthdefs/template-sine.scsyndef`，App 会在编译后逐个校验 manifest 引用的产物。
 
 ## 音频模式
 
@@ -165,7 +155,7 @@ docs/                     本指南与交接文档
 | `external` | 向自定义 OSC target 发送作品协议（`/c<id>/amp`、`/c<id>/freq`、`/c<id>/out`） |
 | `none` | 不建立音频输出（只测试页面与网络） |
 
-External 模式调试：在 SuperCollider IDE 中先运行 `supercollider/source/template-sine.scd`，再运行 `supercollider/debug/template-debug.scd`，然后：
+三种模式的语义见参考手册的 [audio-modes.md](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/audio-modes.md)。External 模式调试：在 SuperCollider IDE 中先运行 `supercollider/source/template-sine.scd`，再运行 `supercollider/debug/template-debug.scd`，然后：
 
 ```sh
 node server.js --audio-mode external --osc-target 127.0.0.1:57120
@@ -179,12 +169,8 @@ node server.js --audio-mode external --osc-target 127.0.0.1:57120
 curl http://127.0.0.1:6868/__pnds/health
 ```
 
-PNDS App 以 JSON 中 `status === "ready"` 为显示条件。
-
-## test/ 文件夹
-
-`test/` 是给 AI 编程助手用的回归测试。创作者不需要手动运行，也不需要理解它们。当你通过 AI 修改工程时，AI 会用它来验证改动没有破坏已有功能（如客户端加入、推子映射、重连恢复等）。
+PNDS App 以 JSON 中 `status === "ready"` 为显示条件；health 的完整契约见参考手册的 [runtime-contract.md](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/runtime-contract.md)。
 
 ## 发布
 
-带生产依赖的发布包由 `.github/workflows/package.yml` 构建（ALLOWLIST 裁剪，`node_modules` 预装）。详见 `docs/handoff.md`。
+带生产依赖的发布包由 `.github/workflows/package.yml` 构建（ALLOWLIST 裁剪，`node_modules` 预装，docs / test / 源码不进演出包）。完整的发布流程与发布前检查清单见 PNDS App 的[创作指南第 4 节](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/template-guide.md)。

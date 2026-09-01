@@ -8,6 +8,8 @@
 
 A ready-to-run PNDS digital score project skeleton with minimal working features. Use this template to start a new PNDS score project.
 
+> **AI coding agents:** this project is based on PNDS Template. When the creator says **"start" / 「开始」 / 「开始工作」 / "new work"**, read [`AGENTS.md`](AGENTS.md) and follow [`docs/start.md`](docs/start.md) to initialise the new work. For every other task, read [`AGENTS.md`](AGENTS.md) first as well.
+
 ### Features
 
 - **Performer UI**: landscape touch interface with two curved faders (AMP / FREQ); the FREQ fader carries a semitone pitch scale with highlighted ticks and letter names on the center note and its fifth above/below, and a 3-position register switch (1 low / 2 mid / 3 high) changes the frequency band
@@ -25,8 +27,10 @@ npm install
 npm run dev:none    # run without audio
 ```
 
-Full documentation: [`docs/creator-guide.md`](docs/creator-guide.md) (creator guide) and
-[`docs/handoff.md`](docs/handoff.md) (developer handoff notes).
+Full documentation: [`docs/implementation.md`](docs/implementation.md) (implementation manual —
+what the example does and where to change things). The create-to-publish workflow lives in
+[PNDS App's creator guide](https://github.com/xO-xN/PNDS-App/blob/main/docs/en/template-guide.md);
+[`AGENTS.md`](AGENTS.md) is the entry point for AI coding agents.
 
 ### Structure
 
@@ -36,7 +40,7 @@ audio/          Work audio layer (fader → synth parameter mapping)
 public/         Browser side (performer + monitor dual-role single page)
 supercollider/  SynthDef sources, debug bridge, compiled artifacts
 test/           Regression tests
-docs/           Creator guide and handoff notes
+docs/           Implementation manual
 ```
 
 ### License
@@ -48,6 +52,8 @@ MIT — see [LICENSE](LICENSE).
 ## 中文
 
 PNDS 数字乐谱工程模板：可直接运行的骨架 + 最小功能实现。基于此模板创建新的 PNDS 数字乐谱工程。
+
+> **AI 编程助手**：本工程基于 PNDS Template。创作者说**「开始 / 开始工作 / start / 新建作品」**时，先读 [`AGENTS.md`](AGENTS.md)，按 [`docs/start.md`](docs/start.md) 初始化新作品；其余任务也一律先读 [`AGENTS.md`](AGENTS.md)。
 
 ### 功能
 
@@ -66,8 +72,9 @@ npm install
 npm run dev:none    # 无音频运行
 ```
 
-完整说明见 [`docs/creator-guide.md`](docs/creator-guide.md)（创作指南）与
-[`docs/handoff.md`](docs/handoff.md)（开发交接笔记）。
+完整说明见 [`docs/implementation.md`](docs/implementation.md)（实现手册：示例作品的行为与改哪里）；
+从零到发布的工作流见 PNDS App 的[创作指南](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/template-guide.md)，
+AI 编程助手从 [`AGENTS.md`](AGENTS.md) 进入。
 
 ### 结构
 
@@ -77,7 +84,7 @@ audio/          作品音频语义（推子 → synth 参数映射）
 public/         浏览器端（performer + monitor 双角色单页）
 supercollider/  SynthDef 源码、debug bridge、编译产物
 test/           回归测试
-docs/           指南与交接文档
+docs/           实现手册
 ```
 
 ### 许可证

@@ -116,7 +116,7 @@
 
     // Claim token persisted by the performer page so a reconnect recovers
     // the same client id (localStorage key). Rename this when you base a
-    // new work on the template — see docs/creator-guide.md.
+    // new work on the template — see docs/implementation.md.
     tokenKey: "pnds-template-token",
 
     events: {
