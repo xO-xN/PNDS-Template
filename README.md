@@ -29,7 +29,7 @@ npm run dev:none    # run without audio
 
 ### Start a new piece with an AI agent
 
-Import the Project into your AI coding agent and say the canonical trigger **"start a new piece"** (Chinese: **「开始新作品」** — whichever you say sets the working language). The agent then initialises the new work: work name / author / description in place, version reset, install and tests green. From then on the Project's [`AGENTS.md`](AGENTS.md) routes the agent to the platform contract docs — no manual doc feeding.
+Import the Project into your AI coding agent and say the canonical trigger **"start a new piece"**. The agent then initialises the new work: work name / author / description in place, version reset, install and tests green. From then on the Project's [`AGENTS.md`](AGENTS.md) routes the agent to the platform contract docs — no manual doc feeding.
 
 Full documentation: [`docs/implementation.md`](docs/implementation.md) (implementation manual —
 what the example does and where to change things). The create-to-publish workflow lives in
@@ -78,7 +78,7 @@ npm run dev:none    # 无音频运行
 
 ### 与 AI 协作开始新作品
 
-把工程导入你的 AI-Coding Agent，说规范开始语**「开始新作品」**（英文 **"start a new piece"**——说哪句，agent 就用哪种语言工作）即可完成初始化：作品名 / 作者 / 简介就位、版本归零、安装与测试跑绿。此后平台契约文档由工程内的 [`AGENTS.md`](AGENTS.md) 替 agent 按问题索引，无需手动投喂。
+把工程导入你的 AI-Coding Agent，说规范开始语 **「开始新作品」** 即可完成初始化：作品名 / 作者 / 简介就位、版本归零、安装与测试跑绿。此后平台契约文档由工程内的 [`AGENTS.md`](AGENTS.md) 替 agent 按问题索引，无需手动投喂。
 
 完整说明见 [`docs/implementation.md`](docs/implementation.md)（实现手册：示例作品的行为与改哪里）；
 从零到发布的工作流见 PNDS App 的[创作指南](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/template-guide.md)，
