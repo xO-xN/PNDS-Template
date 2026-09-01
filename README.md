@@ -8,7 +8,7 @@
 
 A ready-to-run PNDS digital score project skeleton with minimal working features. Use this template to start a new PNDS score project.
 
-> **AI coding agents:** this project is based on PNDS Template. When the creator says **"start" / 「开始」 / 「开始工作」 / "new work"**, read [`AGENTS.md`](AGENTS.md) and follow [`docs/start.md`](docs/start.md) to initialise the new work. For every other task, read [`AGENTS.md`](AGENTS.md) first as well.
+> **AI coding agents:** this project is a fresh PNDS Template (`manifest.json` `id` is still `pnds-template`). When the creator says **"start" / 「开始」 / 「开始工作」 / "new work"**, read [`AGENTS.md`](AGENTS.md) and follow [`docs/start.md`](docs/start.md) to initialise the new work. For every other task, read [`AGENTS.md`](AGENTS.md) first as well.
 
 ### Features
 
@@ -53,7 +53,7 @@ MIT — see [LICENSE](LICENSE).
 
 PNDS 数字乐谱工程模板：可直接运行的骨架 + 最小功能实现。基于此模板创建新的 PNDS 数字乐谱工程。
 
-> **AI 编程助手**：本工程基于 PNDS Template。创作者说**「开始 / 开始工作 / start / 新建作品」**时，先读 [`AGENTS.md`](AGENTS.md)，按 [`docs/start.md`](docs/start.md) 初始化新作品；其余任务也一律先读 [`AGENTS.md`](AGENTS.md)。
+> **AI 编程助手**：本工程是崭新模板（`manifest.json` 的 `id` 仍为 `pnds-template`）。创作者说**「开始 / 开始工作 / start / 新建作品」**时，先读 [`AGENTS.md`](AGENTS.md)，按 [`docs/start.md`](docs/start.md) 初始化新作品；其余任务也一律先读 [`AGENTS.md`](AGENTS.md)。
 
 ### 功能
 

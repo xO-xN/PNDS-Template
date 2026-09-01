@@ -8,7 +8,10 @@ PNDS Template：PNDS 数字乐谱工程模板。基于它创建的工程在 PNDS
 
 ## 开始一件新作品
 
-创作者说「开始 / 开始工作 / start / 新建作品」，或工程刚从模板创建、仍带示例身份时 → 按 [docs/start.md](docs/start.md) 执行初始化。
+创作者说「开始 / 开始工作 / start / 新建作品」时，先看工程身份（`manifest.json` 的 `id`）：
+
+- 仍为 `pnds-template` → 崭新模板，按 [docs/start.md](docs/start.md) 执行初始化。
+- 已是作品 id → **初始化只发生一次**：「开始」按普通对话处理，问创作者今天要做什么；改名 / 改简介随时单独改字段即可（start.md 第 0 步记了重跑的代价：version 归零、tokenKey 更换使设备失去座位、作品规格被占位覆盖）。
 
 ## 验证
 

@@ -4,6 +4,15 @@
 
 作者名落在 `package.json` 的 `author`（npm 标准字段）：`manifest.json` 的 schema 由 PNDS App 校验，当前没有 author 字段，不自行添加。
 
+## 0. 前置检查：本工程尚未初始化
+
+看 `manifest.json` 的 `id`：
+
+- `pnds-template` → 崭新模板，继续第 1 步。
+- 其他值 → 工程已转正，**不走本流程**：「开始」在这里是普通对话——告知创作者本工程已初始化（报名作品名），问今天要做什么。改名 / 改简介 / 换 `tokenKey` 随时可单独改字段。重跑本流程的代价：`version` 归零（破坏「内容变更必须升版本」纪律）、`tokenKey` 更换（已演奏过的设备失去座位记录）、已成长的作品规格被占位覆盖。
+
+完成判据：确认 `id` 为 `pnds-template` 才进入第 1 步；否则本轮以澄清对话收尾，不改动任何文件。
+
 ## 1. 采集作品身份
 
 向创作者要三样：**作品名**、**作者名**、**一句话简介**；顺带问创作构想（可空，占位即可）。
@@ -15,16 +24,16 @@
 - `manifest.json`：`id`（kebab-case，与作品名对应）、`name`、`description`、`version` 重置为 `0.1.0`。字段规则见 AGENTS.md 指针表的 manifest.md。
 - `package.json`：`name`、`description`、`author`。
 - `public/shared.js`：`tokenKey` 改为与 `id` 一致（如 `"<id>-token"`），避免不同工程共用 localStorage 键。
-- `README.md`：标题与两语简介换成新作品。
+- `README.md`：标题与两语简介换成新作品；顶部 AI 引导块删去「开始」子句、只留「先读 AGENTS.md」——初始化只发生一次，触发引导随转正失效。
 - `AGENTS.md` 与 `docs/implementation.md` 导语中的「PNDS Template」字样换成作品名（指针表、骨架不变量原样保留）。
 
 `.github/workflows/package.yml` 的发布身份（BUNDLE 目录名、产物名）**此刻不改**——发布前再改，见第 5 步。
 
-完成判据：`grep -ri "pnds-template\|PNDS Template"` 除 `.github/workflows/package.yml` 与示例决策记录外零命中。
+完成判据：`manifest.json`、`package.json`、`public/shared.js`、`README.md` 四处不再出现 `pnds-template` / `PNDS Template`（AGENTS.md 与 docs/ 的 agent 文档提及模板身份与门禁属正常，不计入）。
 
 ## 3. 文档转正
 
-- `docs/implementation.md`：「作品规格」节替换为创作者构想；没有构想就写「初始规格待定——与创作者共同定义后回填」占位，别保留示例规格冒充当前规格。
+- `docs/implementation.md`：「作品规格」节替换为创作者构想；没有构想就写「初始规格待定——与创作者共同定义后回填」占位，别保留示例规格冒充当前规格。若作品层已被大改（跳过「开始」直接开工的情况），规格从当前代码的实际行为回填，别用占位。
 - `AGENTS.md`「示例的决策记录」横幅已在，无需逐条清理——随作品分叉自然改写。
 
 完成判据：implementation.md 不再把双推子示例描述为本作品的规格。
