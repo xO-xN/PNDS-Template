@@ -22,14 +22,15 @@
 ## 2. 身份转正（一次改全）
 
 - `manifest.json`：`id`（kebab-case，与作品名对应）、`name`、`description`、`version` 重置为 `0.1.0`。字段规则见 AGENTS.md 指针表的 manifest.md。
-- `package.json`：`name`、`description`、`author`。
+- `package.json`：`name`、`description`、`author`、`version` 同步归零 `0.1.0`（与 manifest 一致；`package-lock.json` 的名称字段由第 4 步 install 刷新）。
+- 其余身份位由 grep 兜底发现，常见命中：`LICENSE` 版权行、`public/index.html` 的 `<title>`、各源文件头注释、`.github/bundle/README.md`——一并转正。
 - `public/shared.js`：`tokenKey` 改为与 `id` 一致（如 `"<id>-token"`），避免不同工程共用 localStorage 键。
 - `README.md`：标题与两语简介换成新作品；顶部 AI 引导块删去「开始」子句、只留「先读 AGENTS.md」——初始化只发生一次，触发引导随转正失效。
 - `AGENTS.md` 与 `docs/implementation.md` 导语中的「PNDS Template」字样换成作品名（指针表、骨架不变量原样保留）。
 
 `.github/workflows/package.yml` 的发布身份（BUNDLE 目录名、产物名）**此刻不改**——发布前再改，见第 5 步。
 
-完成判据：`manifest.json`、`package.json`、`public/shared.js`、`README.md` 四处不再出现 `pnds-template` / `PNDS Template`（AGENTS.md 与 docs/ 的 agent 文档提及模板身份与门禁属正常，不计入）。
+完成判据：上列位置均已指向新作品；repo 级身份残留复核放在第 4 步安装之后。
 
 ## 3. 文档转正
 
@@ -46,7 +47,7 @@ npm run check
 npm test
 ```
 
-完成判据：三条命令零失败（模板不预装 `node_modules/`，PNDS App 也不执行安装）。
+完成判据：三条命令零失败（模板不预装 `node_modules/`，PNDS App 也不执行安装）；随后 `grep -ri "pnds-template\|PNDS Template" --exclude-dir=node_modules --exclude-dir=.git .` 的命中仅限 `.github/workflows/package.yml`（推迟到发布前）与 `AGENTS.md`、`CLAUDE.md`、`docs/`（agent 文档对模板身份与门禁的自指）。
 
 ## 5. 交接
 

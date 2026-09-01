@@ -18,7 +18,8 @@ const { connectPerformer, connectMonitor } = require("../public/client");
 const { loadManifest, resolveServerConfig } = require("../lib/config");
 
 const PROJECT_ROOT = path.join(__dirname, "..");
-const SERVER_CONFIG = resolveServerConfig(loadManifest(PROJECT_ROOT));
+const manifest = loadManifest(PROJECT_ROOT);
+const SERVER_CONFIG = resolveServerConfig(manifest);
 const PERFORMER_URL = `http://127.0.0.1:${SERVER_CONFIG.performerPort}`;
 const MONITOR_URL = `http://127.0.0.1:${SERVER_CONFIG.monitorPort}`;
 const HEALTH_URL = `${PERFORMER_URL}/__pnds/health`;
@@ -184,7 +185,7 @@ test("score server: health, join, control, set-out, reconnect, restart seats, re
 
   const health = await waitForHealthReady();
 
-  assert.equal(health.projectId, "pnds-template");
+  assert.equal(health.projectId, manifest.id);
   assert.equal(health.audioMode, "none");
   assert.equal(health.scoreServer.performerPort, SERVER_CONFIG.performerPort);
   assert.equal(health.scoreServer.monitorPort, SERVER_CONFIG.monitorPort);
