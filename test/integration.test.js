@@ -541,9 +541,18 @@ test("shutdown: SIGTERM completes promptly with live clients still connected", a
 
   assert.ok(await portsFree(), "the previous test's server never released the ports");
 
+  // Isolate seat persistence like the e2e test above: without this the
+  // server writes real seat records to the project root, one random token
+  // per run, until the file fills up and every fresh join is rejected.
+  const seatsFile = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "pnds-seats-shutdown-")),
+    "seats.json",
+  );
+
   const server = spawn(process.execPath, ["server.js", "--audio-mode", "none"], {
     cwd: PROJECT_ROOT,
     stdio: ["ignore", "ignore", "ignore"],
+    env: { ...process.env, PNDS_SEATS_FILE: seatsFile },
   });
   t.after(() => server.kill("SIGKILL"));
 
