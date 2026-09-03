@@ -6,7 +6,7 @@
 
 ## English
 
-A ready-to-run PNDS digital score project skeleton with minimal working features. Use this template to start a new PNDS score project.
+A ready-to-run PNDS digital score project skeleton with minimal working features. Use this template to start a new PNDS score project. Projects created from this template run in [PNDS App](https://github.com/xO-xN/PNDS-App), the macOS host for PNDS digital scores.
 
 > **AI coding agents:** this project is a fresh PNDS Template (`manifest.json` `id` is still `pnds-template`). When the creator says the canonical trigger **"start a new piece"** (or a bare trigger such as "start" / 「开始」), read [`AGENTS.md`](AGENTS.md) and follow [`docs/start.md`](docs/start.md) to initialise the new work — the phrase you hear sets the working language. For every other task, read [`AGENTS.md`](AGENTS.md) first as well.
 
@@ -55,7 +55,7 @@ MIT — see [LICENSE](LICENSE).
 
 ## 中文
 
-PNDS 数字乐谱工程模板：可直接运行的骨架 + 最小功能实现。基于此模板创建新的 PNDS 数字乐谱工程。
+PNDS 数字乐谱工程模板：可直接运行的骨架 + 最小功能实现。基于此模板创建新的 PNDS 数字乐谱工程。基于此模板创建的工程在 [PNDS App](https://github.com/xO-xN/PNDS-App)（运行 PNDS 数字乐谱的 macOS 桌面 Host）中运行。
 
 > **AI 编程助手**：本工程是崭新模板（`manifest.json` 的 `id` 仍为 `pnds-template`）。创作者说规范开始语**「开始新作品」**（或「开始 / start」等触发词）时，先读 [`AGENTS.md`](AGENTS.md)，按 [`docs/start.md`](docs/start.md) 初始化新作品——说哪句，用哪种语言工作；其余任务也一律先读 [`AGENTS.md`](AGENTS.md)。
 
