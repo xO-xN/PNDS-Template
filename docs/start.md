@@ -25,7 +25,7 @@
 - `package.json`：`name`、`description`、`author`、`version` 同步归零 `0.1.0`（与 manifest 一致；`package-lock.json` 的名称字段由第 4 步 install 刷新）。
 - 其余身份位由 grep 兜底发现，常见命中：`LICENSE` 版权行、`public/index.html` 的 `<title>`、各源文件头注释、`.github/bundle/README.md`——一并转正。
 - `public/shared.js`：`tokenKey` 改为与 `id` 一致（如 `"<id>-token"`），避免不同工程共用 localStorage 键。
-- `README.md`：标题与两语简介换成新作品；顶部 AI 引导块删去「开始」子句、只留「先读 AGENTS.md」——初始化只发生一次，触发引导随转正失效。
+- `README.md` 与 `README.zh-CN.md`：封面区换成本作品——一级标题与 `title` 元数据、`composer`（作者）、首节简介；`github_url` 换成新仓库（没有就删行）；顶部 AI 引导块删去「开始」子句、只留「先读 AGENTS.md」——初始化只发生一次，触发引导随转正失效。单语作品删掉多余变体，语言切换行收成单侧。封面图 `cover.png` 换成本作品画面（没有就删除）。`.github/bundle/README.md` 的封面区同步转正（`---` 之后的演出步骤保留）。
 - `AGENTS.md` 与 `docs/implementation.md` 导语中的「PNDS Template」字样换成作品名（指针表、骨架不变量原样保留）。
 
 `.github/workflows/package.yml` 的发布身份（BUNDLE 目录名、产物名）**此刻不改**——发布前再改，见第 5 步。

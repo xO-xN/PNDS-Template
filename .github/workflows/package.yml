@@ -48,6 +48,9 @@ jobs:
           cp -R lib audio public node_modules "$BUNDLE/"
           cp -R supercollider/synthdefs "$BUNDLE/supercollider/"
           cp .github/bundle/README.md "$BUNDLE/README.md"
+          # The cover image travels with the bundle (pnds-bundle spec):
+          # the App renders it in the README panel's cover band.
+          cp cover.png "$BUNDLE/cover.png"
           find "$BUNDLE" -name '.DS_Store' -delete
           find "$BUNDLE" -name '.lh' -type d -prune -exec rm -rf {} +
 

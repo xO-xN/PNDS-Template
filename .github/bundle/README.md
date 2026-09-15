@@ -1,6 +1,13 @@
 # PNDS Template
 
-A runnable PNDS score project skeleton with minimal working features.
+title: PNDS Template
+composer: PNDS
+
+## Description:
+
+The starting point for every PNDS digital score work: a ready-to-run skeleton where each performer plays a two-fader touch page, the conductor follows a monitor page, and the score server in between keeps seats, reconnection, theme and audio in step. Open this folder in PNDS App and perform it as it is — or grow it into your own work.
+
+---
 
 This folder is a **PNDS score project**, packaged and ready to run offline.
 
