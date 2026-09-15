@@ -119,6 +119,23 @@
     // new work on the template — see docs/implementation.md.
     tokenKey: "pnds-template-token",
 
+    // The Socket.IO namespace the monitor view-state channel lives on
+    // (lib/monitor-state.js server-side; connectMonitor's
+    // monitorNamespace option page-side). Performer pages never connect
+    // here — the namespace IS the broadcast scope.
+    monitorNamespace: "/monitor",
+
+    // Monitor view state this work syncs across every copy of the
+    // monitor page: key → default. Declaring a key here opts it into
+    // the server-held store (session-scoped, in-memory — a restart
+    // starts from these defaults again); state a page keeps to itself
+    // simply stays undeclared. The keys are this work's vocabulary.
+    monitorViewState: {
+      // The performer-page QR on the monitor: the conductor hides it
+      // on the projection copy; every copy follows in sync.
+      showQr: true,
+    },
+
     events: {
       join: "join",
       joined: "joined",
@@ -128,6 +145,9 @@
       setSeat: "set-seat",
       state: "state",
       resetIds: "reset-ids",
+      monitorSnapshot: "monitor:state:snapshot",
+      monitorSet: "monitor:state:set",
+      monitorState: "monitor:state",
     },
   };
 });

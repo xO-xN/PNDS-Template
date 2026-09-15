@@ -369,6 +369,8 @@ test('monitor.js: a delivered palette restyles the p5 controls, malformed palett
       position: () => {},
       size: () => {},
       parent: () => {},
+      hide: () => {},
+      show: () => {},
     }
   }
 
@@ -384,6 +386,7 @@ test('monitor.js: a delivered palette restyles the p5 controls, malformed palett
     PNDSClient: {
       connectMonitor: () => ({
         onClients: () => {},
+        onViewState: () => {},
         resetIds: () => {},
         setSeat: () => {},
         setOut: () => {},

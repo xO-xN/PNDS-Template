@@ -73,6 +73,17 @@ PNDS App（≥ v1.3.0）会把当前界面语言（`en` / `zh-CN`）经 `pnds:lo
 
 加语言：改 `public/monitor.js` 的 `STRINGS` 与初始化的 `S`，同步在 `public/index.html` 的 `PNDS_LOCALE_OPTIONS` 声明 `locales`。模块的解析语义（精确匹配 → 基础语言匹配 → fallback）与口子见模块手册的[语言跟随](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/locale-follow.md)。
 
+## monitor 视图状态同步（多副本一致）
+
+同一个 monitor URL 会被加载成多个副本：App 主窗 iframe、App 投影窗口 iframe、⌘⇧R 重载后的新副本、浏览器标签页。视图调整（开关、调试选择）若放页面本地，每个副本各自从默认值起步——主窗里调好的内容，投影端要重新调一遍，重载即丢。本模板把 monitor 视图状态搬到**工程 server 单一持有**：`lib/monitor-state.js` 挂在 Socket.IO 的 `/monitor` namespace（`public/shared.js` 的 `monitorNamespace`），连接即推快照、任一副本 `set` 即向全部副本广播**完整状态**。页面（`public/client.js` 的 `connectMonitor` 传 `monitorNamespace` 后）从 `viewState` 渲染、调整走 `setViewState` 上报，**不改本地**；快照落地前视图相关 UI 保持隐藏（不闪默认值）。**App 侧零改动**——两副本本就各自直连工程 server，App 不在这条数据路径上（这也是模式不受 App 版本约束的原因）。
+
+- 状态**按键 opt-in**：`public/shared.js` 的 `monitorViewState` 声明本作品要同步的键与默认值（示例只有一个 `showQr`）；未声明的键 server 一律忽略，页面可保留纯本地状态（如悬停高亮）。
+- 生命周期 **session 级**：内存持有、不落盘（与座位 registry 的磁盘持久化明确区分）——重启即回到默认，每场演出从干净状态开始。
+- 广播范围**仅 monitor 侧客户端**：performer 页从不连 `/monitor` namespace，结构性零感知。
+- 示例：monitor 页右上角「显示/隐藏二维码」按钮——投影副本不想给观众看二维码时，在主窗副本点一下即可，所有副本同步跟随。
+
+协议细节（三事件、页面接线、自定义键）见模块手册的 [monitor 视图状态](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/monitor-state.md)。
+
 ## 目录结构
 
 ```
@@ -87,6 +98,7 @@ lib/                      可复用核心，任何 PNDS 工程通用（template 
   players.js              客户端 id 分配与重连恢复（claim token；已记录座位优先、他人座位保留）
   seats-store.js          座位记录持久化（token → {id, out}，跨重启；`.pnds-seats.json`）
   protocol.js             Socket.IO 协议：join / claim / 重连恢复 / 控制转发（载荷不透明，字段语义在作品层）/ 座位记录 / 重配 / 广播
+  monitor-state.js        monitor 视图状态单一事实源（/monitor namespace：连接推快照、set 广播；内存 session 级，见上文「monitor 视图状态同步」）
   lifecycle.js            优雅关闭
   theme-follow.js         主题跟随（App ≥ v1.2.3，可选）：消费 pnds:theme 消息（见上文「主题跟随」）
   locale-follow.js        语言跟随（App ≥ v1.3.0，可选）：消费 pnds:locale 消息（见上文「语言跟随」）
@@ -125,6 +137,7 @@ docs/                     本手册
 | 调设备演奏序号 | monitor 页 ID 下拉（目标序号需空闲） |
 | 清空设备座位记录（换手机阵容） | monitor 页 **重配 ID** 按钮，或删除 `.pnds-seats.json` 后重启 |
 | 加 Socket.IO 事件 | `public/shared.js`（事件名）+ `lib/protocol.js`（处理——核心协议语义，一般不需要） |
+| 加 / 改 monitor 视图状态键（多副本同步的开关、调试选择） | `public/shared.js` 的 `monitorViewState`（声明键与默认值）+ `public/monitor.js`（渲染与 setViewState 上报；机制见模块手册 [monitor 视图状态](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/monitor-state.md)） |
 | 改推子频率范围 / 音区 | `public/shared.js` 的 `registers`（每区 `freqRange` + `freqTicks`；页面显示、刻度与 server 发声自动同步，无需改 `audio/controller.js`） |
 | 改客户端上限 | `manifest.json` 的 `audio.outputChannels`（id 上限 = 输出声道数） |
 

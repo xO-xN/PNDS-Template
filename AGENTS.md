@@ -63,6 +63,7 @@ npm test        # node --test 回归（协议 / 音频契约 / 座位 / 主题 /
 
 - scsynth：项目 group 固定 `GROUP_ID = 1000`；node ID 保留区纪律见 runtime-contract.md §7.4（本示例的 voice 分配是 `1000 + clientId`——新作品自定分配，避开保留区即可）。
 - 座位记录落盘工程根 `.pnds-seats.json`（claim token → `{id, out}`），环境变量 `PNDS_SEATS_FILE` 可重定位；推子状态只在内存（扛锁屏重连，不扛重启）。这是 `lib/protocol.js` / `lib/seats-store.js` 的骨架行为，作品层换血也随骨架保留。
+- monitor 视图状态由工程 server 单一持有：内存、session 级、不落盘（与座位 registry 的磁盘持久化明确区分）——`lib/monitor-state.js` 挂 `/monitor` namespace，连接推快照、set 广播；performer 页结构性零感知。模块手册见指针表 `modules/monitor-state.md`。
 - 发布包由 `.github/workflows/package.yml` 按 ALLOWLIST 组装（docs / test / 源码不进演出包，`node_modules` 预装）。
 
 ## 示例层现状（新作品整体替换）

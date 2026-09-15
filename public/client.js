@@ -4,7 +4,9 @@
 // module (tests). Everything the pages used to inline lives here: the
 // performer-port URL, socket reconnection, the join-with-persisted-token
 // / rejoin-on-reconnect flow, my-voice tracking from state broadcasts,
-// and the send-only-if-changed deadband. Pages keep drawing and input.
+// the send-only-if-changed deadband, and the monitor's view-state
+// channel (server-held state: snapshot on connect, set on adjust).
+// Pages keep drawing and input.
 //
 // Like lib/protocol.js on the server side, this module holds no work
 // vocabulary: control payloads pass through the deadband and the wire
@@ -50,8 +52,16 @@
     return false;
   }
 
-  function connectSocket({ io, port, hostname, reconnectionDelay = 1000 }) {
-    return io(socketOrigin({ hostname, port }), {
+  // `namespace` appends a Socket.IO namespace to the origin ("" = the
+  // main namespace) — the monitor's view-state channel lives on one.
+  function connectSocket({
+    io,
+    port,
+    hostname,
+    reconnectionDelay = 1000,
+    namespace = "",
+  }) {
+    return io(socketOrigin({ hostname, port }) + namespace, {
       reconnection: true,
       reconnectionDelay,
     });
@@ -172,7 +182,24 @@
   // The monitor page's connection: an observer that never joins — it
   // sees every state broadcast and can reassign a client's output
   // channel by naming the id.
-  function connectMonitor({ io, port, events, hostname, reconnectionDelay }) {
+  //
+  // `monitorNamespace` (from shared.js) additionally opens the
+  // view-state channel: a second socket on that Socket.IO namespace,
+  // where the server is the single source of truth for the monitor
+  // page's view (every copy — App main window, projection window,
+  // reload, browser tab — converges there). viewState reads null until
+  // the first snapshot lands, so a fresh page can hold its
+  // view-dependent rendering back instead of flashing defaults;
+  // adjustments go out through setViewState and re-render from the
+  // broadcast, never from local mutation.
+  function connectMonitor({
+    io,
+    port,
+    events,
+    hostname,
+    reconnectionDelay,
+    monitorNamespace,
+  }) {
     const socket = connectSocket({ io, port, hostname, reconnectionDelay });
     const listeners = [];
     let clients = [];
@@ -185,6 +212,40 @@
       }
     });
 
+    const viewSocket = monitorNamespace
+      ? connectSocket({
+          io,
+          port,
+          hostname,
+          reconnectionDelay,
+          namespace: monitorNamespace,
+        })
+      : null;
+    const viewListeners = [];
+    let viewState = null;
+
+    if (viewSocket) {
+      const deliverViewState = (data) => {
+        // A malformed payload is not a snapshot of defaults — ignore it
+        // and keep whatever the last good delivery left (null until one
+        // lands, so pre-snapshot rendering still waits).
+        if (!data || typeof data !== "object") {
+          return;
+        }
+
+        viewState = data;
+
+        for (const listener of viewListeners) {
+          listener(viewState);
+        }
+      };
+
+      // Snapshot on (re)connect and every broadcast after a set — one
+      // delivery path, so a reconnect heals a missed broadcast.
+      viewSocket.on(events.monitorSnapshot, deliverViewState);
+      viewSocket.on(events.monitorState, deliverViewState);
+    }
+
     return {
       get connected() {
         return socket.connected;
@@ -192,9 +253,16 @@
       get clients() {
         return clients;
       },
+      get viewState() {
+        return viewState;
+      },
 
       onClients(listener) {
         listeners.push(listener);
+      },
+
+      onViewState(listener) {
+        viewListeners.push(listener);
       },
 
       setOut(id, out) {
@@ -213,8 +281,20 @@
         socket.emit(events.resetIds);
       },
 
+      // Reports a view adjustment; the server's broadcast (including
+      // back to this copy) is what changes viewState.
+      setViewState(key, value) {
+        if (viewSocket) {
+          viewSocket.emit(events.monitorSet, { key, value });
+        }
+      },
+
       close() {
         socket.close();
+
+        if (viewSocket) {
+          viewSocket.close();
+        }
       },
     };
   }

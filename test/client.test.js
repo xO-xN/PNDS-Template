@@ -21,6 +21,9 @@ const EVENTS = {
   setSeat: "set-seat",
   state: "state",
   resetIds: "reset-ids",
+  monitorSnapshot: "monitor:state:snapshot",
+  monitorSet: "monitor:state:set",
+  monitorState: "monitor:state",
 };
 
 const TOKEN_KEY = "pnds-test-token";
@@ -324,4 +327,116 @@ test("connectMonitor setSeat emits the seat move", () => {
   assert.deepStrictEqual(sockets[0].sentFor(EVENTS.setSeat), [
     { event: EVENTS.setSeat, payload: { id: 3, to: 5 } },
   ]);
+});
+
+test("connectMonitor without a namespace keeps the single observer socket", () => {
+  const { io, sockets } = createFakeIo();
+
+  const monitor = connectMonitor({
+    io,
+    port: 6868,
+    events: EVENTS,
+    hostname: "192.168.1.9",
+  });
+
+  assert.strictEqual(sockets.length, 1);
+  assert.strictEqual(monitor.viewState, null);
+
+  // Opted out of the channel: adjusting reports nothing, closes nothing.
+  monitor.setViewState("showQr", false);
+
+  assert.deepStrictEqual(sockets[0].sent, []);
+});
+
+test("the view-state socket lives on the monitor namespace and starts unsnapped", () => {
+  const { io, sockets } = createFakeIo();
+
+  const monitor = connectMonitor({
+    io,
+    port: 6868,
+    events: EVENTS,
+    hostname: "192.168.1.9",
+    monitorNamespace: "/monitor",
+  });
+
+  assert.strictEqual(sockets[0].url, "http://192.168.1.9:6868");
+  assert.strictEqual(sockets[1].url, "http://192.168.1.9:6868/monitor");
+  assert.strictEqual(sockets[1].options.reconnection, true);
+
+  // No snapshot yet: viewState stays null, not guessed defaults.
+  assert.strictEqual(monitor.viewState, null);
+});
+
+test("the snapshot and every broadcast land in viewState and listeners", () => {
+  const { io, sockets } = createFakeIo();
+  const seen = [];
+
+  const monitor = connectMonitor({
+    io,
+    port: 6868,
+    events: EVENTS,
+    hostname: "192.168.1.9",
+    monitorNamespace: "/monitor",
+  });
+
+  monitor.onViewState((state) => seen.push(state));
+
+  const viewSocket = sockets[1];
+
+  viewSocket.receive(EVENTS.monitorSnapshot, { showQr: true });
+
+  assert.deepStrictEqual(monitor.viewState, { showQr: true });
+  assert.strictEqual(seen.length, 1);
+
+  viewSocket.receive(EVENTS.monitorState, { showQr: false });
+
+  assert.deepStrictEqual(monitor.viewState, { showQr: false });
+  assert.strictEqual(seen.length, 2);
+
+  // A malformed payload is not a snapshot of defaults — the previous
+  // state stands (and none-landed stays none-landed).
+  viewSocket.receive(EVENTS.monitorState, null);
+
+  assert.deepStrictEqual(monitor.viewState, { showQr: false });
+  assert.strictEqual(seen.length, 2);
+});
+
+test("a malformed snapshot before any good one keeps viewState null", () => {
+  const { io, sockets } = createFakeIo();
+
+  const monitor = connectMonitor({
+    io,
+    port: 6868,
+    events: EVENTS,
+    hostname: "192.168.1.9",
+    monitorNamespace: "/monitor",
+  });
+
+  sockets[1].receive(EVENTS.monitorSnapshot, null);
+
+  assert.strictEqual(monitor.viewState, null);
+});
+
+test("setViewState reports on the view socket, not the observer socket", () => {
+  const { io, sockets } = createFakeIo();
+
+  const monitor = connectMonitor({
+    io,
+    port: 6868,
+    events: EVENTS,
+    hostname: "192.168.1.9",
+    monitorNamespace: "/monitor",
+  });
+
+  monitor.setViewState("showQr", false);
+
+  assert.deepStrictEqual(sockets[1].sentFor(EVENTS.monitorSet), [
+    { event: EVENTS.monitorSet, payload: { key: "showQr", value: false } },
+  ]);
+  assert.deepStrictEqual(sockets[0].sent, []);
+
+  monitor.close();
+
+  assert.strictEqual(sockets[0].closed, true);
+  assert.strictEqual(sockets[1].closed, true);
 });

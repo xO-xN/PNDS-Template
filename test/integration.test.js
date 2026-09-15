@@ -13,6 +13,7 @@ const {
   registers,
   events: EVENTS,
   tokenKey,
+  monitorNamespace,
 } = require("../public/shared");
 const { connectPerformer, connectMonitor } = require("../public/client");
 const { loadManifest, resolveServerConfig } = require("../lib/config");
@@ -347,6 +348,7 @@ test("score server: health, join, control, set-out, reconnect, restart seats, re
     port: SERVER_CONFIG.performerPort,
     events: EVENTS,
     hostname: "127.0.0.1",
+    monitorNamespace,
   });
   t.after(() => monitorClient.close());
 
@@ -375,6 +377,89 @@ test("score server: health, join, control, set-out, reconnect, restart seats, re
   monitorClient.setOut(3, 6);
 
   assert.ok(await waitForCondition(() => performerClient.myOut === 6));
+
+  // --- monitor view state: server-held, snapshot on connect, set
+  // broadcasts to every copy, performers never hear it ---
+  // The monitor's own snapshot arrived with its connect (the defaults —
+  // nothing has been set yet).
+  assert.ok(await waitForCondition(() => monitorClient.viewState !== null));
+  assert.deepStrictEqual(monitorClient.viewState, { showQr: true });
+
+  // A second copy (the projection window / another browser tab) starts
+  // from the same snapshot.
+  const projectionCopy = connectMonitor({
+    io,
+    port: SERVER_CONFIG.performerPort,
+    events: EVENTS,
+    hostname: "127.0.0.1",
+    monitorNamespace,
+  });
+  t.after(() => projectionCopy.close());
+
+  assert.ok(await waitForCondition(() => projectionCopy.viewState !== null));
+  assert.deepStrictEqual(projectionCopy.viewState, { showQr: true });
+
+  // One copy's adjustment reaches the other; the sender re-renders from
+  // the same broadcast it triggered.
+  monitorClient.setViewState("showQr", false);
+
+  assert.ok(
+    await waitForCondition(() => projectionCopy.viewState.showQr === false),
+  );
+  assert.strictEqual(monitorClient.viewState.showQr, false);
+
+  // A fresh connection (⌘⇧R reload, projection opened mid-show) receives
+  // the CURRENT state, not the defaults — "reload loses nothing" is this
+  // same new-connection seam.
+  const reloadedMonitor = connectMonitor({
+    io,
+    port: SERVER_CONFIG.performerPort,
+    events: EVENTS,
+    hostname: "127.0.0.1",
+    monitorNamespace,
+  });
+  t.after(() => reloadedMonitor.close());
+
+  assert.ok(
+    await waitForCondition(
+      () =>
+        reloadedMonitor.viewState !== null &&
+        reloadedMonitor.viewState.showQr === false,
+    ),
+  );
+
+  // Undeclared keys stay page-local: the server ignores the set — no
+  // broadcast, no mutation.
+  monitorClient.setViewState("debug", true);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  assert.ok(!("debug" in monitorClient.viewState));
+  assert.strictEqual(monitorClient.viewState.showQr, false);
+
+  // Performers never hear the channel: a joined performer counts zero
+  // view-state events while another set converges all copies.
+  const performerWitness = await joinWithToken(null);
+  let witnessEvents = 0;
+
+  performerWitness.socket.on(EVENTS.monitorSnapshot, () => {
+    witnessEvents += 1;
+  });
+  performerWitness.socket.on(EVENTS.monitorState, () => {
+    witnessEvents += 1;
+  });
+
+  monitorClient.setViewState("showQr", true);
+
+  assert.ok(
+    await waitForCondition(() => monitorClient.viewState.showQr === true),
+  );
+  assert.ok(
+    await waitForCondition(() => projectionCopy.viewState.showQr === true),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.strictEqual(witnessEvents, 0);
+
+  performerWitness.socket.close();
 
   // A fresh client with the same storage (page reload / phone lock)
   // recovers the same id.

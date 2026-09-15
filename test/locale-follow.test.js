@@ -269,6 +269,8 @@ test('monitor.js: a delivered locale swaps the UI strings, unsupported codes kee
       position: () => {},
       size: () => {},
       parent: () => {},
+      hide: () => {},
+      show: () => {},
     }
   }
 
@@ -293,6 +295,7 @@ test('monitor.js: a delivered locale swaps the UI strings, unsupported codes kee
     PNDSClient: {
       connectMonitor: () => ({
         onClients: () => {},
+        onViewState: () => {},
         resetIds: () => {},
         setSeat: () => {},
         setOut: () => {},

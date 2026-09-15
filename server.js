@@ -27,6 +27,7 @@ const { PlayerRegistry } = require("./lib/players");
 const { SeatsStore } = require("./lib/seats-store");
 const { qrHandler } = require("./lib/qr");
 const { attachProtocol } = require("./lib/protocol");
+const { attachMonitorState } = require("./lib/monitor-state");
 const { ProjectAudio } = require("./audio/controller");
 const {
   attachShutdown,
@@ -203,6 +204,19 @@ attachProtocol(io, {
 });
 
 // ------------------------------------------------------------
+// Monitor view state (lib/monitor-state.js owns the semantics)
+// ------------------------------------------------------------
+
+// The monitor page's view controls (view toggles, debug picks) live on
+// the server as the single source of truth, on their own Socket.IO
+// namespace — every copy of the page converges there. Memory-only,
+// session-scoped; lib/monitor-state.js owns the semantics.
+attachMonitorState(io.of(shared.monitorNamespace), {
+  events: shared.events,
+  defaults: shared.monitorViewState,
+});
+
+// ------------------------------------------------------------
 // Shutdown
 // ------------------------------------------------------------
 
@@ -210,13 +224,16 @@ attachShutdown({
   onShutdown: async () => {
     health.setStopping();
 
-    // Drop every connected client first — performers AND the monitor
-    // page's observer socket. io.close() waits for clients to take their
-    // disconnect; a phone on a weak network must not outlive the host's
-    // kill window. Per-step elapsed below: a slow step found in the wild
-    // is diagnosable from the output tail alone.
+    // Drop every connected client first — performers, the monitor
+    // page's observer socket AND its view-state socket (namespace
+    // broadcasts are not covered by the main-namespace call). io.close()
+    // waits for clients to take their disconnect; a phone on a weak
+    // network must not outlive the host's kill window. Per-step elapsed
+    // below: a slow step found in the wild is diagnosable from the
+    // output tail alone.
     const t0 = Date.now();
     io.disconnectSockets(true);
+    io.of(shared.monitorNamespace).disconnectSockets(true);
     io.close();
     const tSockets = Date.now() - t0;
 
