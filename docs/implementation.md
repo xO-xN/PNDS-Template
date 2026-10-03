@@ -32,8 +32,8 @@ npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
 
 | 页面 | 地址 | 用途 |
 |---|---|---|
-| Performer | `http://<Host-LAN-IP>:6868/` | 演奏者触摸界面（手机横屏） |
-| Monitor | `http://<Host-LAN-IP>:6869/` | 监视端：客户端列表与声道分配 |
+| Performer | `http://<Host-LAN-IP>:6868/`（App HTTPS 入口生效时为完整 `PNDS_PERFORMER_URL`） | 演奏者触摸界面（手机横屏） |
+| Monitor | `http://<Host-LAN-IP>:6869/`（始终内部地址） | 监视端：客户端列表与声道分配 |
 
 默认端口来自 `manifest.json` 的 `scoreServer.performerPort` / `monitorPort`——这是**唯一来源**。`public/shared.js` 和浏览器都会自动读取，不需要手动同步。端口惯例与选择建议见参考手册的 [manifest.md「端口」节](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/manifest.md)。
 
@@ -52,7 +52,7 @@ npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
 - **每个 voice 输出上限 -6 dB**（在 SynthDef 内 `amp * 0.5` 实现）。
 - 客户端上限 = 输出声道数（manifest 默认 16；App 注入 `PNDS_AUDIO_OUTPUT_CHANNELS` 时以注入值为准）；满员时新客户端被拒绝。
 - 默认声道：**奇数 id → 声道 1，偶数 id → 声道 2**（相对 `PNDS_AUDIO_OUTPUT_BUS`）。
-- Monitor 端可把任意客户端的输出声道改为 1..N（N = server 实际解析的输出声道数，经 `__config.js` 注入浏览器，与 server 校验同源）；允许重叠。Monitor 页下方显示 **performer 页面的 QR 码**（`GET /qr`，由 `lib/qr.js` 生成）。
+- Monitor 端可把任意客户端的输出声道改为 1..N（N = server 实际解析的输出声道数，经 `__config.js` 注入浏览器，与 server 校验同源）；允许重叠。Monitor 页下方显示 **performer 页面的 QR 码与其可复制地址**（`GET /qr` 由 `lib/qr.js` 生成，地址文本来自同一解析结果——见上文「完整 performer URL」）。
 - **Monitor 端可调演奏序号**（ID 下拉，与声道分配同款交互）：把设备移到空闲序号——分配、voice（带当前状态原位重建）与座位记录一并迁移，performer 页面经 `joined` 事件自动跟进新序号。目标序号被在线设备占用时不动；被陈旧座位记录占用时覆盖（操作员意图优先）。
 - 客户端断开后，重连（同一浏览器，token 保存在 localStorage）会**恢复原 id 与最后推子状态**；恢复**一次到位**——voice 直接以持久化状态创建（单条 `/s_new` 携带正确的音量/频率/声道），不经过默认值中间态，锁屏重连不会在错误声道出声。
 - **座位记录跨重启持久**：server 把每台设备的演奏序号与声道（`token → {id, out}`）写进工程根目录的 `.pnds-seats.json`，重新开启工程时同一台设备（同一浏览器）自动拿回原序号与原声道；推子状态（freq/amp）不跨重启，重启后归零。座位为其设备保留——新设备不会占用已记录的序号；陈旧记录（不会再来的手机）占满座位时，用 monitor 页右上角的 **重配 ID** 按钮清空全部记录（在线设备会被断开重连、按重连顺序拿新序号，声道回默认）。测试或 App 可用环境变量 `PNDS_SEATS_FILE` 把状态文件指到别处。
@@ -60,6 +60,19 @@ npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
 - score server 的终端日志记录协议生命周期（join / disconnect / rejected）——现场排查"幽灵客户端"循环重连时看这里。
 
 座位机制的完整故事（claim token、分配与恢复、协议消息）见模块手册的[乐手身份与座位](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/players.md)。
+
+## 完整 performer URL（可选，App HTTPS 入口）
+
+App 的本地可信 HTTPS 入口（契约见参考手册 [runtime-contract.md §15](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/runtime-contract.md)）生效时，会注入完整 performer 根 URL `PNDS_PERFORMER_URL`（如 `https://show.example.org:8443/`）。本模板按该契约适配——`manifest.json` 声明 `scoreServer.supportsPerformerUrl: true` 表示这层能力：
+
+- **一个 URL 三处共用**：`lib/config.js` 的 `resolvePerformerUrl()` 是唯一解析点（提供 `PNDS_PERFORMER_URL` 时用它，否则回落 `http://<PNDS_HOST_IP>:<performerPort>/`，现行为不变）；QR 码（`GET /qr`）、monitor 页二维码下方可点选复制的地址、浏览器注入的 `__config.js` 都消费同一个值，不会漂移。
+- **手机侧同源**：performer 页的脚本与 Socket.IO 全部走**当前 origin**（`location.origin`）——`public/client.js` 的 `connectPerformer` 接 `origin`（页面传 `location.origin`），`index.html` 的 socket.io `<script>` 同源加载。HTTP 模式下该 origin 就是 performer 端口，HTTPS 入口下就是入口 origin，页面代码零分支。
+- **页面角色由服务端注入**：`__config.js` 的 `role` 字段（performer / monitor 由**哪个端口的服务**吐出配置决定），`index.html` 据此分支——不比较浏览器端口。入口的端口是网关的、与 manifest 端口无关，端口比较在入口之下不可靠。
+- **monitor 保持内部连接**：monitor 页仍从 monitor 端口加载、跨端口连 performer 服务（`socketOrigin` + `connectMonitor`），不经外部入口，也不加载入口 origin 的资源。
+- **claim token 按 origin 隔离**：localStorage 的 token 只在同一 origin 下可读——同一 HTTPS origin 的断线重连照常复用 token 恢复座位（工程零改动）；协议、域名或端口变化（含 HTTP → HTTPS 切换）后设备按新加入处理，不承诺跨 origin 迁移。
+- **工程身份随入口发布**：`__config.js` 同时注入 `projectId`（manifest.id）与 `performerUrl`——入口的接入上下文由此绑定到当前工程，供 App 侧网关后续拒绝与当前工程不匹配的旧入口。
+
+基于本模板的新作品默认继承这层适配（`lib/` 骨架 + `public/` 的连接层都在模板内）；重写页面层时保持「同源连接 + 服务端角色注入 + 地址单源」三条即可。
 
 ## 主题跟随（可选，App 集成）
 
@@ -90,7 +103,7 @@ PNDS App（≥ v1.3.0）会把当前界面语言（`en` / `zh-CN`）经 `pnds:lo
 manifest.json             PNDS 工程契约（App 只认它和 server 入口）
 server.js                 作品主 server：编排协议（通常不用改）
 lib/                      可复用核心，任何 PNDS 工程通用（template 骨架，通常不用改）
-  config.js               manifest / CLI / 端口 / 环境变量解析
+  config.js               manifest / CLI / 端口 / 环境变量 / 完整 performer URL 解析
   network.js              LAN IPv4 枚举
   health.js               /__pnds/health
   osc-transport.js        UDP OSC 传输（osc-min + dgram）
@@ -106,9 +119,9 @@ lib/                      可复用核心，任何 PNDS 工程通用（template 
 audio/                    作品音频语义层：推子 → synth 参数的映射（创作时改这里）
   controller.js           每客户端一个 voice，声道分配，外部 OSC 协议
 public/                   浏览器端（performer + monitor 双角色单页）
-  index.html              双角色入口（按端口加载不同脚本）
-  shared.js               浏览器与 server 共用的常量：事件名 / 频率范围（单一事实来源，见下文）
-  client.js               浏览器端 score-server 客户端：performer 加入/重连恢复/去抖发送、monitor 状态视图（页面只管绘制与输入；有 Node 测试）
+  index.html              双角色入口（按服务端注入的 role 加载不同脚本；socket.io：performer 同源 / monitor 跨端口）
+  shared.js               浏览器与 server 共用的常量：事件名 / 频率范围 / 入口上下文（单一事实来源，见下文）
+  client.js               浏览器端 score-server 客户端：performer 同源加入/重连恢复/去抖发送、monitor 内部连接与状态视图（页面只管绘制与输入；有 Node 测试）
   performer.js            演奏者横屏推子界面（p5）
   monitor.js              监视端：列表 + 声道分配 + 重配 ID 按钮
   style.css

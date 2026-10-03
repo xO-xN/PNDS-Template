@@ -382,7 +382,7 @@ test('monitor.js: a delivered palette restyles the p5 controls, malformed palett
     width: 800,
     height: 600,
     document: { documentElement: { style: {} } },
-    PNDS: { performerPort: 6868, monitorPort: 6869, outputChannels: 16 },
+    PNDS: { performerPort: 6868, monitorPort: 6869, outputChannels: 16, performerUrl: "http://192.168.1.9:6868/" },
     PNDSClient: {
       connectMonitor: () => ({
         onClients: () => {},
@@ -397,6 +397,7 @@ test('monitor.js: a delivered palette restyles the p5 controls, malformed palett
     createImg: () => fakeControl(),
     createButton: () => button,
     createSelect: () => fakeControl(),
+    createDiv: () => fakeControl(),
   }
   page.self = page
   page.window = page

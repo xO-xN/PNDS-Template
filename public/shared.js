@@ -95,6 +95,15 @@
     monitorPort: config.monitorPort,
     outputChannels: config.outputChannels,
 
+    // #138 entry context (browser: __config.js; Node: null — the URL is
+    // runtime state, not manifest state). role says which server served
+    // the page (never inferred from the browser port); performerUrl is
+    // the one full URL the QR and the copyable address show; projectId
+    // binds the entry's access context to this work's identity.
+    role: config.role || null,
+    performerUrl: config.performerUrl || null,
+    projectId: config.projectId || null,
+
     // The three fader registers (1 = low, 2 = mid, 3 = high) selectable by
     // the performer page's 3-position switch. freqRange / freqTicks below
     // are aliases of registers[defaultRegister].
@@ -168,5 +177,11 @@ function readManifestConfig() {
     performerPort: manifest.scoreServer.performerPort,
     monitorPort: manifest.scoreServer.monitorPort,
     outputChannels: outputChannels,
+    // The #138 entry context is runtime state the server resolves from
+    // PNDS_PERFORMER_URL — it reaches the browser via __config.js, never
+    // the manifest. Node consumers read it from lib/config.js instead.
+    role: null,
+    performerUrl: null,
+    projectId: manifest.id,
   };
 }

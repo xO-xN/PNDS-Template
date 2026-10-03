@@ -2,19 +2,19 @@
 //
 // Works as a plain browser global (window.PNDSClient) and as a Node
 // module (tests). Everything the pages used to inline lives here: the
-// performer-port URL, socket reconnection, the join-with-persisted-token
-// / rejoin-on-reconnect flow, my-voice tracking from state broadcasts,
-// the send-only-if-changed deadband, and the monitor's view-state
-// channel (server-held state: snapshot on connect, set on adjust).
-// Pages keep drawing and input.
+// performer's same-origin connection, socket reconnection, the
+// join-with-persisted-token / rejoin-on-reconnect flow, my-voice
+// tracking from state broadcasts, the send-only-if-changed deadband,
+// and the monitor's view-state channel (server-held state: snapshot on
+// connect, set on adjust). Pages keep drawing and input.
 //
 // Like lib/protocol.js on the server side, this module holds no work
 // vocabulary: control payloads pass through the deadband and the wire
 // opaquely, and event names come from shared.js via the caller.
 //
-// All ambient dependencies are injected ({ io, storage, hostname }), so
-// tests drive the same code with a fake socket factory and a fake
-// storage — no browser needed.
+// All ambient dependencies are injected ({ io, storage }), so tests
+// drive the same code with a fake socket factory and a fake storage —
+// no browser needed.
 
 (function (root, factory) {
   if (typeof module !== "undefined" && module.exports) {
@@ -23,8 +23,12 @@
     root.PNDSClient = factory();
   }
 })(typeof self !== "undefined" ? self : this, function () {
-  // The performer server's origin — the one URL both pages and the
-  // socket.io script tag are built from.
+  // The performer server's INTERNAL origin (plain HTTP on the LAN) —
+  // what the monitor page's cross-port connection and its socket.io
+  // script tag are built from. The performer page itself connects
+  // same-origin instead (see connectPerformer): under the App's HTTPS
+  // entry the browser origin is the entry's, and the socket must
+  // follow the page, not the manifest ports (#138).
   function socketOrigin({ hostname, port }) {
     return "http://" + hostname + ":" + port;
   }
@@ -56,29 +60,32 @@
   // main namespace) — the monitor's view-state channel lives on one.
   function connectSocket({
     io,
-    port,
-    hostname,
+    origin,
     reconnectionDelay = 1000,
     namespace = "",
   }) {
-    return io(socketOrigin({ hostname, port }) + namespace, {
+    return io(origin + namespace, {
       reconnection: true,
       reconnectionDelay,
     });
   }
 
-  // The performer page's connection: joins with the persisted claim
+  // The performer page's connection: SAME-ORIGIN — whatever origin
+  // served the page also serves its Socket.IO, so the page passes
+  // location.origin (the LAN performer port in HTTP mode, the App's
+  // HTTPS entry behind it; #138). It joins with the persisted claim
   // token (re-emitting it on every reconnect, so the server hands back
   // the same client id and the restored voice state), tracks this
   // voice's output channel from state broadcasts, and sends controls
-  // only when they changed.
+  // only when they changed. The claim token lives in localStorage,
+  // scoped per origin — a reconnect reuses it only on the same origin
+  // the join was made from.
   function connectPerformer({
     io,
-    port,
+    origin,
     events,
     tokenKey,
     storage,
-    hostname,
     reconnectionDelay,
     sendThreshold = 0.002,
   }) {
@@ -86,7 +93,7 @@
       throw new Error("connectPerformer needs a storage (localStorage in the browser)");
     }
 
-    const socket = connectSocket({ io, port, hostname, reconnectionDelay });
+    const socket = connectSocket({ io, origin, reconnectionDelay });
 
     const state = {
       joined: false,
@@ -181,7 +188,10 @@
 
   // The monitor page's connection: an observer that never joins — it
   // sees every state broadcast and can reassign a client's output
-  // channel by naming the id.
+  // channel by naming the id. It stays INTERNAL (plain HTTP, cross-port
+  // to the performer server): the monitor page is served on the
+  // monitor port and never travels through the App's external entry
+  // (#138), so its connection keeps the LAN origin shape it always had.
   //
   // `monitorNamespace` (from shared.js) additionally opens the
   // view-state channel: a second socket on that Socket.IO namespace,
@@ -200,7 +210,8 @@
     reconnectionDelay,
     monitorNamespace,
   }) {
-    const socket = connectSocket({ io, port, hostname, reconnectionDelay });
+    const origin = socketOrigin({ hostname, port });
+    const socket = connectSocket({ io, origin, reconnectionDelay });
     const listeners = [];
     let clients = [];
 
@@ -215,8 +226,7 @@
     const viewSocket = monitorNamespace
       ? connectSocket({
           io,
-          port,
-          hostname,
+          origin,
           reconnectionDelay,
           namespace: monitorNamespace,
         })

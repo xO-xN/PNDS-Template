@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { spawn } = require("node:child_process");
 const net = require("node:net");
+const http = require("node:http");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -24,6 +25,104 @@ const SERVER_CONFIG = resolveServerConfig(manifest);
 const PERFORMER_URL = `http://127.0.0.1:${SERVER_CONFIG.performerPort}`;
 const MONITOR_URL = `http://127.0.0.1:${SERVER_CONFIG.monitorPort}`;
 const HEALTH_URL = `${PERFORMER_URL}/__pnds/health`;
+
+// Parses the __config.js injection into its JSON object.
+function parseConfigScript(source) {
+  return JSON.parse(
+    source.replace(/^window\.__PNDS_CONFIG__ = /, "").replace(/;$/, ""),
+  );
+}
+
+// A minimal forwarding entry for the #138 contract: one external origin
+// in front of the performer server — plain HTTP re-issued upstream and
+// WebSocket upgrades byte-piped after the rewrite. The same transport
+// shape the App's future HTTPS gateway presents to phones.
+//
+// Polling requests must each ride their OWN upstream connection
+// (Connection: close, no keep-alive agent): pooling them onto one
+// socket upsets engine.io's polling → websocket upgrade negotiation,
+// which expects browser-style one-request-per-connection polls.
+const pollAgent = new http.Agent({ keepAlive: false });
+
+function createForwardingEntry(targetPort) {
+  // Upgraded connections (the websocket pipes): Node's close() waits
+  // for them and closeAllConnections() refuses to touch them, so the
+  // entry owns them itself — closeUpgraded() drops them on teardown.
+  const upgraded = new Set();
+  const server = http.createServer((request, response) => {
+    const headers = {
+      ...request.headers,
+      host: `127.0.0.1:${targetPort}`,
+      connection: "close",
+    };
+    const upstream = http.request(
+      {
+        hostname: "127.0.0.1",
+        port: targetPort,
+        method: request.method,
+        path: request.url,
+        headers,
+        agent: pollAgent,
+      },
+      (upstreamResponse) => {
+        response.writeHead(upstreamResponse.statusCode, upstreamResponse.headers);
+        upstreamResponse.pipe(response);
+      },
+    );
+
+    upstream.on("error", () => response.destroy());
+    request.pipe(upstream);
+  });
+
+  server.on("upgrade", (request, socket, head) => {
+    upgraded.add(socket);
+    socket.on("close", () => upgraded.delete(socket));
+
+    const upstream = net.connect({ port: targetPort, host: "127.0.0.1" }, () => {
+      const lines = [`${request.method} ${request.url} HTTP/1.1`];
+
+      for (let index = 0; index < request.rawHeaders.length; index += 2) {
+        const name = request.rawHeaders[index];
+
+        lines.push(
+          name.toLowerCase() === "host"
+            ? `Host: 127.0.0.1:${targetPort}`
+            : `${name}: ${request.rawHeaders[index + 1]}`,
+        );
+      }
+
+      upstream.write(lines.join("\r\n") + "\r\n\r\n");
+
+      if (head.length > 0) {
+        upstream.write(head);
+      }
+
+      socket.pipe(upstream);
+      upstream.pipe(socket);
+    });
+
+    // Symmetric cleanup: whichever end goes away (client teardown, the
+    // upstream server stopping), destroy the other — a half-open pipe
+    // would hold the score server's io.close() open forever.
+    const drop = () => {
+      socket.destroy();
+      upstream.destroy();
+    };
+    upstream.on("error", drop);
+    upstream.on("close", drop);
+    socket.on("error", drop);
+    socket.on("close", drop);
+  });
+
+  return {
+    server,
+    closeUpgraded() {
+      for (const socket of upgraded) {
+        socket.destroy();
+      }
+    },
+  };
+}
 
 function waitForHealthReady() {
   return new Promise((resolve, reject) => {
@@ -56,9 +155,9 @@ function waitForHealthReady() {
   });
 }
 
-function joinWithToken(token) {
+function joinWithToken(token, url = PERFORMER_URL, options = {}) {
   return new Promise((resolve, reject) => {
-    const socket = io(PERFORMER_URL, { reconnection: false });
+    const socket = io(url, { reconnection: false, ...options });
     const timer = setTimeout(() => {
       socket.close();
       reject(new Error("join timeout"));
@@ -327,13 +426,13 @@ test("score server: health, join, control, set-out, reconnect, restart seats, re
   // join (token persisted), deadband over the wire, monitor view,
   // operator set-out reaching the performer status, reload recovery.
   const clientStorage = createClientStorage();
+  // Same-origin seam (#138): the page passes the origin that served it.
   const performerClient = connectPerformer({
     io,
-    port: SERVER_CONFIG.performerPort,
+    origin: PERFORMER_URL,
     events: EVENTS,
     tokenKey,
     storage: clientStorage,
-    hostname: "127.0.0.1",
   });
   t.after(() => performerClient.close());
 
@@ -467,11 +566,10 @@ test("score server: health, join, control, set-out, reconnect, restart seats, re
 
   const reloaded = connectPerformer({
     io,
-    port: SERVER_CONFIG.performerPort,
+    origin: PERFORMER_URL,
     events: EVENTS,
     tokenKey,
     storage: clientStorage,
-    hostname: "127.0.0.1",
   });
   t.after(() => reloaded.close());
 
@@ -598,6 +696,24 @@ test("score server: health, join, control, set-out, reconnect, restart seats, re
     `${PERFORMER_URL}/__pnds/locale-follow.js`,
   );
   assert.equal(performerLocaleModule.status, 404);
+
+  // --- #138: __config.js carries the entry context. No
+  // PNDS_PERFORMER_URL in this spawn, so the performer URL is the HTTP
+  // fallback; the ROLE comes from the serving side, never a port
+  // comparison; both roles resolve the SAME performer URL ---
+  const performerConfig = parseConfigScript(
+    await (await fetch(`${PERFORMER_URL}/__config.js`)).text(),
+  );
+  const monitorConfig = parseConfigScript(
+    await (await fetch(`${MONITOR_URL}/__config.js`)).text(),
+  );
+
+  assert.equal(performerConfig.role, "performer");
+  assert.equal(monitorConfig.role, "monitor");
+  assert.equal(performerConfig.projectId, manifest.id);
+  assert.equal(monitorConfig.projectId, manifest.id);
+  assert.match(performerConfig.performerUrl, /^http:\/\/[^/:]+:\d+\/$/);
+  assert.equal(monitorConfig.performerUrl, performerConfig.performerUrl);
 });
 
 test("shutdown: SIGTERM completes promptly with live clients still connected", async (t) => {
@@ -697,4 +813,152 @@ test("shutdown: SIGTERM completes promptly with live clients still connected", a
     elapsed < 1000,
     `shutdown took ${elapsed} ms with live clients still connected`,
   );
+});
+
+// #138: the full performer URL contract. A forwarding entry (the same
+// transport shape the App's future HTTPS gateway presents) fronts the
+// performer server under one external origin; PNDS_PERFORMER_URL tells
+// the server that origin. Phones-to-be load pages and Socket.IO from
+// the entry itself, the entry context names the project, and a
+// reconnect through the same entry reuses the claim token.
+test("full performer URL: one URL everywhere, pages and sockets through a forwarding entry", async (t) => {
+  // The earlier tests' teardown signals their servers without waiting
+  // for the exits; give the ports a moment before claiming them.
+  const portFree = (port) =>
+    new Promise((resolve) => {
+      const probe = net.connect({ port, host: "127.0.0.1" });
+
+      probe.once("connect", () => {
+        probe.destroy();
+        resolve(false);
+      });
+      probe.once("error", () => resolve(true));
+    });
+
+  const deadline = Date.now() + 5000;
+
+  while (
+    Date.now() < deadline &&
+    !(await portFree(SERVER_CONFIG.performerPort))
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  assert.ok(
+    await portFree(SERVER_CONFIG.performerPort),
+    "the earlier tests' servers never released the performer port",
+  );
+
+  const seatsFile = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "pnds-seats-entry-")),
+    "seats.json",
+  );
+
+  const entry = createForwardingEntry(SERVER_CONFIG.performerPort);
+
+  await new Promise((resolve) => entry.server.listen(0, "127.0.0.1", resolve));
+  // Same discipline as lib/lifecycle.js closeHttpServer: the phone-side
+  // sockets (websockets piped through the entry, fetch keep-alives)
+  // would hold close() open — drop them once we stop listening.
+  // closeAllConnections() refuses upgraded connections, so the entry's
+  // own closeUpgraded() drops the websocket pipes with them.
+  t.after(() =>
+    new Promise((resolve) => {
+      entry.server.close(() => resolve());
+      entry.server.closeAllConnections();
+      entry.closeUpgraded();
+    }),
+  );
+
+  const entryUrl = `http://127.0.0.1:${entry.server.address().port}`;
+  // The App-injected full URL, exactly as the entry publishes it.
+  const performerUrl = `${entryUrl}/`;
+
+  const server = spawn(process.execPath, ["server.js", "--audio-mode", "none"], {
+    cwd: PROJECT_ROOT,
+    stdio: "ignore",
+    env: {
+      ...process.env,
+      PNDS_SEATS_FILE: seatsFile,
+      PNDS_HOST_IP: "127.0.0.1",
+      PNDS_PERFORMER_URL: performerUrl,
+    },
+  });
+  t.after(() => server.kill("SIGTERM"));
+
+  await waitForHealthReady();
+
+  // --- page resources through the entry: the phone's whole origin ---
+  const page = await fetch(`${entryUrl}/`);
+
+  assert.equal(page.status, 200);
+
+  const socketIoScript = await fetch(`${entryUrl}/socket.io/socket.io.js`);
+
+  assert.equal(socketIoScript.status, 200);
+  assert.match(socketIoScript.headers.get("content-type"), /javascript/);
+
+  // --- the entry context: role from the serving side (the entry's
+  // port is NOT the manifest's — a port comparison could never be
+  // trusted here), the ONE full URL, and the project identity ---
+  const entryConfig = parseConfigScript(
+    await (await fetch(`${entryUrl}/__config.js`)).text(),
+  );
+
+  assert.equal(entryConfig.role, "performer");
+  assert.equal(entryConfig.performerUrl, performerUrl);
+  assert.equal(entryConfig.projectId, manifest.id);
+
+  // The internal monitor port resolves the SAME URL and its own role.
+  const monitorConfig = parseConfigScript(
+    await (await fetch(`${MONITOR_URL}/__config.js`)).text(),
+  );
+
+  assert.equal(monitorConfig.role, "monitor");
+  assert.equal(monitorConfig.performerUrl, performerUrl);
+
+  // The QR endpoint keeps serving its PNG on the monitor side.
+  const qr = await fetch(`${MONITOR_URL}/qr`);
+
+  assert.equal(qr.status, 200);
+  assert.match(qr.headers.get("content-type"), /image\/png/);
+
+  // --- message round-trip through the entry, polling transport ---
+  // Each transport is verified deterministically through the entry.
+  // (The polling → websocket upgrade MIX is the future gateway's own
+  // test surface: behind an added-latency hop the upgrade race window
+  // widens and a late poll trips engine.io's TRANSPORT_MISMATCH.)
+  const first = await joinWithToken(null, entryUrl, {
+    transports: ["polling"],
+  });
+  t.after(() => first.socket.close());
+
+  assert.equal(first.data.id, 1);
+
+  first.socket.emit(EVENTS.control, { amp: 0.5, freq: 0.5 });
+
+  const expectedMidFreq = Math.round(
+    freqRange.min + 0.5 * (freqRange.max - freqRange.min),
+  );
+
+  const controlState = await waitForState(
+    first.socket,
+    (state) =>
+      state.clients.length === 1 &&
+      state.clients[0].amp === 0.25 &&
+      state.clients[0].freq === expectedMidFreq,
+  );
+
+  assert.equal(controlState.clients[0].out, 1);
+
+  // --- same-origin reconnect over the WebSocket transport: the claim
+  // token rejoins through the entry and recovers the same seat ---
+  first.socket.close();
+
+  const rejoined = await joinWithToken(first.data.token, entryUrl, {
+    transports: ["websocket"],
+  });
+  t.after(() => rejoined.socket.close());
+
+  assert.equal(rejoined.data.id, 1);
 });

@@ -6,6 +6,7 @@ const {
   loadManifest,
   resolveAudioMode,
   resolveOscTarget,
+  resolvePerformerUrl,
   resolveServerConfig,
 } = require("../lib/config");
 
@@ -58,4 +59,53 @@ test("resolveServerConfig returns the manifest ports", () => {
 
   assert.equal(config.performerPort, manifest.scoreServer.performerPort);
   assert.equal(config.monitorPort, manifest.scoreServer.monitorPort);
+});
+
+// #138: the one full performer URL — priority, fallback and tolerance.
+
+test("resolvePerformerUrl falls back to the LAN HTTP URL without the variable", () => {
+  assert.equal(
+    resolvePerformerUrl({}, "192.168.1.9", 6868),
+    "http://192.168.1.9:6868/",
+  );
+  // Blank (whitespace-only) reads as not provided, same as absent.
+  assert.equal(
+    resolvePerformerUrl({ PNDS_PERFORMER_URL: "   " }, "192.168.1.9", 6868),
+    "http://192.168.1.9:6868/",
+  );
+});
+
+test("resolvePerformerUrl: PNDS_PERFORMER_URL wins and normalizes", () => {
+  // The entry's full URL is used verbatim (URL-normalized: root URLs
+  // gain the trailing slash).
+  assert.equal(
+    resolvePerformerUrl(
+      { PNDS_PERFORMER_URL: "https://show.example.org:8443" },
+      "192.168.1.9",
+      6868,
+    ),
+    "https://show.example.org:8443/",
+  );
+  assert.equal(
+    resolvePerformerUrl(
+      { PNDS_PERFORMER_URL: " http://127.0.0.1:9000/ " },
+      "192.168.1.9",
+      6868,
+    ),
+    "http://127.0.0.1:9000/",
+  );
+});
+
+test("resolvePerformerUrl rejects malformed values readably", () => {
+  for (const declared of [
+    "show.example.org", // no scheme — not a full URL
+    "ftp://show.example.org", // not http(s)
+    "https://user:pass@show.example.org", // credentials — never a QR target
+  ]) {
+    assert.throws(
+      () => resolvePerformerUrl({ PNDS_PERFORMER_URL: declared }, "192.168.1.9", 6868),
+      /PNDS_PERFORMER_URL/,
+      declared,
+    );
+  }
 });

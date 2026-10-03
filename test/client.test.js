@@ -90,7 +90,7 @@ function createStorage(entries = new Map()) {
   };
 }
 
-function connectPerformerHarness({ token = null } = {}) {
+function connectPerformerHarness({ token = null, origin = "http://192.168.1.9:6868" } = {}) {
   const { io, sockets } = createFakeIo();
   const storage = createStorage();
 
@@ -100,27 +100,30 @@ function connectPerformerHarness({ token = null } = {}) {
 
   const performer = connectPerformer({
     io,
-    port: 6868,
+    origin,
     events: EVENTS,
     tokenKey: TOKEN_KEY,
     storage,
-    hostname: "192.168.1.9",
   });
 
   return { performer, socket: sockets[0], storage };
 }
 
-test("socketOrigin builds the performer-server origin", () => {
+test("socketOrigin builds the performer-server internal origin", () => {
   assert.strictEqual(
     socketOrigin({ hostname: "192.168.1.9", port: 6868 }),
     "http://192.168.1.9:6868",
   );
 });
 
-test("connectPerformer connects to the performer port with reconnection", () => {
-  const { performer, socket } = connectPerformerHarness();
+test("connectPerformer connects to the given origin with reconnection", () => {
+  // Same-origin seam (#138): the page passes location.origin — the LAN
+  // performer port in HTTP mode, the App's HTTPS entry behind it.
+  const { performer, socket } = connectPerformerHarness({
+    origin: "https://show.example.org:8443",
+  });
 
-  assert.strictEqual(socket.url, "http://192.168.1.9:6868");
+  assert.strictEqual(socket.url, "https://show.example.org:8443");
   assert.strictEqual(socket.options.reconnection, true);
   assert.strictEqual(socket.options.reconnectionDelay, 1000);
 
@@ -140,10 +143,9 @@ test("connectPerformer requires an injected storage", () => {
     () =>
       connectPerformer({
         io,
-        port: 6868,
+        origin: "http://localhost:6868",
         events: EVENTS,
         tokenKey: TOKEN_KEY,
-        hostname: "localhost",
       }),
     /storage/,
   );

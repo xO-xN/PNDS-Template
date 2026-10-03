@@ -51,6 +51,9 @@ function createPageHarness() {
   const buttons = [];
   const sets = [];
   let viewListener = null;
+  // #138: the copyable address captioned under the QR (createDiv).
+  const urlText = fakeControl();
+  urlText.content = null;
 
   const page = {
     location: { hostname: "127.0.0.1", search: "" },
@@ -64,6 +67,7 @@ function createPageHarness() {
       monitorPort: 6869,
       outputChannels: 16,
       monitorNamespace: "/monitor",
+      performerUrl: "https://show.example.org:8443/",
     },
     PNDSClient: {
       connectMonitor: () => ({
@@ -82,6 +86,10 @@ function createPageHarness() {
     createImg: (url, alt) => {
       img.elt.alt = alt;
       return img;
+    },
+    createDiv: (text) => {
+      urlText.content = text;
+      return urlText;
     },
     createButton: (label) => {
       const control = fakeControl();
@@ -102,6 +110,7 @@ function createPageHarness() {
   return {
     page,
     img,
+    urlText,
     get qrButton() {
       return buttons[0];
     },
@@ -119,16 +128,21 @@ test("view-dependent UI stays hidden until the snapshot lands", () => {
   h.page.setup();
 
   assert.equal(h.img.visible, false); // no default QR to un-see
+  assert.equal(h.urlText.visible, false); // the address waits with it
   assert.equal(h.qrButton.visible, false); // the toggle waits with it
 });
 
-test("the snapshot shows the QR and labels the toggle from server state", () => {
+test("the snapshot shows the QR, its address and labels the toggle from server state", () => {
   const h = createPageHarness();
 
   h.page.setup();
   h.deliverViewState({ showQr: true });
 
   assert.equal(h.img.visible, true);
+  // The caption carries the SAME resolved URL the QR encodes and
+  // __config.js injects (#138) — one source.
+  assert.equal(h.urlText.content, "https://show.example.org:8443/");
+  assert.equal(h.urlText.visible, true);
   assert.equal(h.qrButton.visible, true);
   assert.equal(h.qrButton.label, "隐藏二维码"); // QR showing → offer to hide
 
@@ -137,6 +151,7 @@ test("the snapshot shows the QR and labels the toggle from server state", () => 
   h.deliverViewState({ showQr: false });
 
   assert.equal(h.img.visible, false);
+  assert.equal(h.urlText.visible, false);
   assert.equal(h.qrButton.label, "显示二维码");
 });
 

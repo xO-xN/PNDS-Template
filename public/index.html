@@ -18,19 +18,25 @@
     <script src="client.js"></script>
     <script>
       // Single page, two roles: the performer port serves the touch UI,
-      // the monitor port serves the operator view.
-      window.PNDS_IS_MONITOR =
-        window.location.port === String(window.PNDS.monitorPort);
+      // the monitor port serves the operator view. The SERVER says which
+      // one it served (__config.js role, #138) — under the App's HTTPS
+      // entry the browser's port is the entry's, not the manifest's, so
+      // a port comparison would be unreliable.
+      window.PNDS_IS_MONITOR = window.PNDS.role === "monitor";
 
-      // Socket.IO is served by the performer server; the monitor page loads
-      // it cross-port. No CDN: performances run offline. The origin comes
-      // from client.js — the single owner of the performer-server URL.
+      // Socket.IO is served by the performer server. The performer page
+      // loads it SAME-ORIGIN — whatever origin served the page (the LAN
+      // performer port in HTTP mode, the App's HTTPS entry behind it)
+      // also serves its socket. The monitor page loads it cross-port via
+      // its internal connection. No CDN: performances run offline.
       document.write(
         '\x3Cscript src="' +
-          window.PNDSClient.socketOrigin({
-            hostname: location.hostname,
-            port: window.PNDS.performerPort,
-          }) +
+          (window.PNDS_IS_MONITOR
+            ? window.PNDSClient.socketOrigin({
+                hostname: location.hostname,
+                port: window.PNDS.performerPort,
+              })
+            : location.origin) +
           '/socket.io/socket.io.js"\x3E\x3C/script\x3E',
       );
 

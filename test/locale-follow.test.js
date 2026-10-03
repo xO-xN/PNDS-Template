@@ -291,7 +291,7 @@ test('monitor.js: a delivered locale swaps the UI strings, unsupported codes kee
     width: 800,
     height: 600,
     document: { documentElement: { style: {} } },
-    PNDS: { performerPort: 6868, monitorPort: 6869, outputChannels: 16 },
+    PNDS: { performerPort: 6868, monitorPort: 6869, outputChannels: 16, performerUrl: "http://192.168.1.9:6868/" },
     PNDSClient: {
       connectMonitor: () => ({
         onClients: () => {},
@@ -312,6 +312,7 @@ test('monitor.js: a delivered locale swaps the UI strings, unsupported codes kee
       return button
     },
     createSelect: () => fakeControl(),
+    createDiv: () => fakeControl(),
     CENTER: 'center',
     textAlign: () => {},
     textSize: () => {},

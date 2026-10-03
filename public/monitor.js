@@ -6,8 +6,9 @@
 // number with the id select (target must be free of live devices), and
 // reset every seat assignment with the top-right button — the server wipes
 // its seat records and the performers rejoin with fresh ids. A QR code for
-// the performer page sits below the table. The QR toggle beside the reset
-// button is server-held view state: every copy of this page (App main
+// the performer page — the copyable address captioned under it (#138: the
+// same resolved URL the code encodes) — sits below the table. The QR toggle
+// beside the reset button is server-held view state: every copy of this page (App main
 // window, projection window, a reload, a browser tab) renders the same
 // snapshot and follows the same broadcasts.
 
@@ -15,6 +16,9 @@ const P = window.PNDS;
 
 // Score-server client (observer role: never joins) — connection and
 // state parsing live in client.js; this page is the table and selects.
+// The connection stays INTERNAL (plain HTTP, cross-port to the
+// performer server): this page is served on the monitor port and never
+// travels through the App's external HTTPS entry (#138).
 // monitorNamespace opens the view-state channel (lib/monitor-state.js
 // server-side): viewState arrives as a snapshot and re-arrives on every
 // broadcast; adjustments go out through setViewState.
@@ -30,6 +34,7 @@ let clients = [];
 let selects = []; // p5 select elements (output channels), rebuilt on id changes
 let idSelects = []; // p5 select elements (seat numbers), rebuilt on id changes
 let qrImage = null;
+let qrUrlText = null; // the copyable performer address under the QR
 let qrButton = null;
 let resetButton = null;
 
@@ -42,7 +47,8 @@ const TABLE_WIDTH = 560;
 const HEADER_HEIGHT = 44;
 const ROW_HEIGHT = 52;
 const QR_SIZE = 150;
-const QR_SPACE = QR_SIZE + 24;
+const QR_URL_HEIGHT = 20;
+const QR_SPACE = QR_SIZE + 24 + QR_URL_HEIGHT;
 const SELECT_WIDTH = 64;
 const ID_SELECT_WIDTH = 56;
 const QR_BUTTON_WIDTH = 104;
@@ -234,6 +240,7 @@ function setup() {
   canvas.parent("stage");
   qrImage = createImg("/qr", S.qrAlt);
   qrImage.hide(); // until the snapshot lands
+  createQrUrlText();
   createQrButton();
   createResetButton();
   rebuildSelects();
@@ -295,6 +302,26 @@ function restyleControls() {
   if (resetButton) {
     styleControlColors(resetButton, false);
   }
+
+  if (qrUrlText) {
+    qrUrlText.style("color", THEME.muted);
+  }
+}
+
+// The performer address as text under the QR — the SAME resolved URL
+// the code encodes (QR, this caption and __config.js share one source,
+// #138). user-select:all makes a single click select the whole URL for
+// copying; the address is a URL, not copy, so there are no locale
+// strings to swap.
+function createQrUrlText() {
+  qrUrlText = createDiv(P.performerUrl);
+  qrUrlText.style("width", QR_SIZE + "px");
+  qrUrlText.style("text-align", "center");
+  qrUrlText.style("font-size", "12px");
+  qrUrlText.style("font-family", "ui-monospace, Menlo, monospace");
+  qrUrlText.style("user-select", "all");
+  qrUrlText.style("-webkit-user-select", "all");
+  qrUrlText.hide(); // until the snapshot lands
 }
 
 function createResetButton() {
@@ -330,9 +357,10 @@ function layoutResetButton() {
 // ------------------------------------------------------------
 
 // Applies the one view key this page syncs, showQr. Rendered ONLY from
-// server state: the QR and the toggle stay hidden until the first
-// snapshot lands (a fresh copy shows no default to un-see), then the
-// image's visibility and the toggle's label follow every broadcast.
+// server state: the QR, its address caption and the toggle stay hidden
+// until the first snapshot lands (a fresh copy shows no default to
+// un-see), then their visibility and the toggle's label follow every
+// broadcast.
 function syncQrView() {
   if (!viewState) {
     return;
@@ -342,8 +370,10 @@ function syncQrView() {
 
   if (showQr) {
     qrImage.show();
+    qrUrlText.show();
   } else {
     qrImage.hide();
+    qrUrlText.hide();
   }
 
   if (qrButton) {
@@ -500,6 +530,10 @@ function layoutSelects() {
 
     qrImage.position(width / 2 - QR_SIZE / 2, qrY);
     qrImage.size(QR_SIZE, QR_SIZE);
+
+    if (qrUrlText) {
+      qrUrlText.position(width / 2 - QR_SIZE / 2, qrY + QR_SIZE + 2);
+    }
   }
 }
 

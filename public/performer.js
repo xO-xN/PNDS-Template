@@ -24,14 +24,16 @@ const P = window.PNDS;
 
 // Score-server client: connection, claim-token join/rejoin, my-voice
 // state tracking and the send-if-changed deadband live in client.js
-// (tested there); this page is drawing and input only.
+// (tested there); this page is drawing and input only. The connection
+// is SAME-ORIGIN (#138): the origin that served this page — the LAN
+// performer port, or the App's HTTPS entry in front of it — also
+// serves its Socket.IO.
 const client = window.PNDSClient.connectPerformer({
   io: io,
-  port: P.performerPort,
+  origin: location.origin,
   events: P.events,
   tokenKey: P.tokenKey,
   storage: localStorage,
-  hostname: location.hostname,
 });
 
 let ampValue = 0;

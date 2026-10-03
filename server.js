@@ -17,6 +17,7 @@ const {
   printUsage,
   resolveAudioMode,
   resolveOscTarget,
+  resolvePerformerUrl,
   resolveServerConfig,
   formatAudioMode,
 } = require("./lib/config");
@@ -57,6 +58,16 @@ const oscTarget = resolveOscTarget(
 );
 const serverConfig = resolveServerConfig(manifest);
 const hostLanIp = resolveHostLanIp(process.env.PNDS_HOST_IP);
+// The one full performer URL every outward surface shares — QR, the
+// monitor's copyable address, __config.js and the startup log. The App
+// injects PNDS_PERFORMER_URL while its HTTPS entry is in effect;
+// without it the LAN HTTP fallback keeps today's behavior (runtime-
+// contract §15).
+const performerUrl = resolvePerformerUrl(
+  process.env,
+  hostLanIp,
+  serverConfig.performerPort,
+);
 
 // ------------------------------------------------------------
 // HTTP servers (performer port + monitor port share public/)
@@ -72,14 +83,29 @@ monitorApp.use(express.static(path.join(PROJECT_ROOT, "public")));
 // Ports come from the manifest; outputChannels is the RESOLVED channel
 // count (App-injected PNDS_AUDIO_OUTPUT_CHANNELS or the manifest value),
 // so the monitor page offers exactly the channels the server validates.
-function configScript(request, response) {
-  response.type("application/javascript").send(
-    `window.__PNDS_CONFIG__ = { performerPort: ${serverConfig.performerPort}, monitorPort: ${serverConfig.monitorPort}, outputChannels: ${audioEngine.outputChannels} };`,
-  );
+//
+// `role` says which server served the page: under the App's HTTPS entry
+// the browser's port is the entry's, not the manifest's, so the page
+// must never infer its role from a port comparison (#138). performerUrl
+// is the one full URL the QR and the copyable address show; projectId
+// binds the entry's access context to this work's identity.
+function configScript(role) {
+  return (request, response) => {
+    response.type("application/javascript").send(
+      `window.__PNDS_CONFIG__ = ${JSON.stringify({
+        role,
+        projectId: manifest.id,
+        performerUrl,
+        performerPort: serverConfig.performerPort,
+        monitorPort: serverConfig.monitorPort,
+        outputChannels: audioEngine.outputChannels,
+      })};`,
+    );
+  };
 }
 
-app.get("/__config.js", configScript);
-monitorApp.get("/__config.js", configScript);
+app.get("/__config.js", configScript("performer"));
+monitorApp.get("/__config.js", configScript("monitor"));
 
 const health = new HealthTracker({
   projectId: manifest.id,
@@ -91,11 +117,10 @@ const health = new HealthTracker({
 app.get("/__pnds/health", health.handler());
 monitorApp.get("/__pnds/health", health.handler());
 
-// QR code for the performer page, shown on the monitor page.
-monitorApp.get(
-  "/qr",
-  qrHandler(`http://${hostLanIp}:${serverConfig.performerPort}/`),
-);
+// QR code for the performer page, shown on the monitor page. Encodes
+// the same resolved performer URL the config and the copyable address
+// carry — one source, no drift.
+monitorApp.get("/qr", qrHandler(performerUrl));
 
 // The lib/ files the monitor page loads in the browser: the bridge
 // modules (theme, spec §5.3; locale, App ≥ v1.3.0), served under the
@@ -264,7 +289,5 @@ function printRuntimeInfo() {
   console.log(
     `[server] output: ${audioEngine.outputChannels} channels from bus ${audioEngine.outputBus}`,
   );
-  console.log(
-    `[server] performer page: http://${hostLanIp}:${serverConfig.performerPort}/`,
-  );
+  console.log(`[server] performer page: ${performerUrl}`);
 }
