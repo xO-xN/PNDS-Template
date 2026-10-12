@@ -51,6 +51,10 @@ npm test        # node --test 回归（协议 / 音频契约 / 座位 / 主题 /
 
 模板自身的实现规格与「创作时改哪里」见 [docs/implementation.md](docs/implementation.md)。
 
+## 创作交接
+
+接续创作或领取 README 语言同步、手动待办、模块接线任务前，先读 [docs/creator-handoff.md](docs/creator-handoff.md)，再按上表读取涉及的平台契约。README 格式与语言回落见装机语料 `readme-guide.md`（本地／远程路径规则同上）。保留既有任务、未知内容和外部 agent 状态；完成任务时更新对应状态，记录实际改动、检查结果与尚待创作者真机验收的部分。
+
 ## 分层边界
 
 - `lib/` 是跨工程可复用核心，作品特定逻辑放 `audio/` 或 `public/`——改 `lib/` 影响所有基于模板的工程。
