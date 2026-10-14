@@ -97,6 +97,18 @@ PNDS App（≥ v1.3.0）会把当前界面语言（`en` / `zh-CN`）经 `pnds:lo
 
 协议细节（三事件、页面接线、自定义键）见模块手册的 [monitor 视图状态](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/monitor-state.md)。
 
+## 独立可交付技术模块（0.2.0）
+
+`modules/` 是六项独立源码交付单元：`qr`、`players`、`theme-follow`、`locale-follow`、`monitor-state`、`hub`。每个目录含实际源码、CommonJS 范围的 `package.json`、双语 `README.md` 与 `compatibility.json`。模块版本、Host 协议、运行依赖和作品适配条件分别说明；App 版本不代替已加入源码版本。目录中的说明使用对应源码公开接口，复制后由作品维护，不会自动升级定制实现。
+
+Template 原有 `lib/` 与示例接线保持现状；独立模块适合其他工程按需采用，其事件、身份、声音、画面与摘要策略由作品决定。两个客户端/monitor 状态条目可以共同加入；主题与语言条目独立加载。hub 使用既有 `PNDS_NODE_ID`、`PNDS_HUB_URL`、`PNDS_HUB_TOKEN`、`PNDS_HUB_ROOM`，继续遵守 Host 的 telematic 配置门；本地手机连接本现场 performer，远端节点数与乐手摘要条数分开。
+
+接线先读各模块 README 与装机帮助 `help/zh-CN/modules/README.md`，缺装机资料时查 [App 模块索引](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/README.md)；运行契约使用同版 `reference/runtime-contract.md`。App 的文件加入与来源记录仍是待接线交接，不等于依赖已安装、入口已引用或实际运行已验证，也不要求安装 Skills。
+
+`fixtures/modules/` 和 `test/modules-*.test.js` 使用本次交付源码，通过真实 HTTP、Socket.IO、中央 hub 子进程、独立工程节点和本地客户端验证技术行为；fixture 不带入示例艺术规则。`npm run check` 同时检查这些模块和 fixture 的语法，`npm test` 运行原示例与模块回归。本次集成在实际 Template 目录通过 `npm run check` 与 `npm test`（153/153）。
+
+2026-10-14 已在真实浏览器检查 `fixtures/modules/display-server.cjs`：首帧 Stage/en 的主题和语言回调各 1 次；重复消息保持各 1 次；切换到 Pond/zh-CN 后各 2 次；释放后再次切换没有改变已有显示。实际 QR 图片显示正常，performer 页面保持独立。另由 macOS Vision 独立解码 HTTP 返回的 PNG，核对完整 URL 的协议、端口、路径、查询与片段。这里分别记录浏览器与自动解码证据；真实 WKWebView、手机扫码、外部公网、声音与演出负载仍由作者验收。
+
 ## 目录结构
 
 ```
