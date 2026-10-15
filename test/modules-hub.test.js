@@ -4,7 +4,26 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const net = require("node:net");
 const { io } = require("socket.io-client");
-const { createHubConnection } = require("../modules/hub/hub");
+const { createHubConnection, readHubConfig } = require("../modules/hub/hub");
+
+test("empty injected Host fields reject standalone fallback while absent Host fields allow it", () => {
+  const standalone = { nodeId: "standalone", url: "http://127.0.0.1:1", token: "secret", room: "work_1" };
+  assert.deepEqual(readHubConfig({}, standalone), standalone);
+  for (const environment of [
+    { PNDS_NODE_ID: "", PNDS_HUB_URL: "", PNDS_HUB_TOKEN: "", PNDS_HUB_ROOM: "" },
+    { PNDS_NODE_ID: "" },
+    { PNDS_HUB_URL: "" },
+    { PNDS_HUB_TOKEN: "" },
+    { PNDS_HUB_ROOM: "" },
+  ]) {
+    assert.deepEqual(readHubConfig(environment, standalone), { nodeId: "", url: "", token: "", room: "" });
+    const link = createHubConnection({ environment, config: standalone });
+    link.start();
+    assert.equal(link.snapshot().status, "unconfigured");
+    assert.equal(link.snapshot().reason, "missing-or-invalid-config");
+    link.stop();
+  }
+});
 
 async function freePort() {
   const server = net.createServer();
