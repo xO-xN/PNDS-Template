@@ -1,214 +1,360 @@
-# PNDS Template — 实现手册
+# Blank 1.7.0 implementation guide
 
-本手册讲这个模板工程本身：示例作品的行为规格、目录职责、创作时改哪里。
-从零到发布的工作流（建仓 → AI 迭代 → 试运行 → 打包发布）住 PNDS App 的[创作指南](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/template-guide.md)，App 内帮助中心同名可查。
+This project uses the PNDS Blank template.
+Implement the current user request. When assigned the creator handoff, follow
+the AGENTS entry point for all current tasks. Maintain this guide as the project changes.
 
-平台契约（manifest / runtime / 打包 / OSC）与模块手册住 [PNDS App 仓库](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/README.md)；装机机器上也可直接读本地语料 `/Applications/PNDS.app/Contents/Resources/help/zh-CN/`（与装机 App 版本严格一致，英文树换 `en`）。AI agent 的取读入口见根目录 [AGENTS.md](../AGENTS.md)。
+## Creative decisions and documents
 
-## 快速开始
+Preserve the creator's confirmed artistic decisions outside the current task.
+Record newly confirmed decisions and changes to earlier decisions in this guide;
+clarify unresolved choices that materially affect the requested work. Ordinary
+implementation choices can proceed within that scope.
 
-### 1. 安装依赖
+README.md contains the audience-facing introduction, in the creation-time language;
+it starts empty if the creator omitted it. Add language variants when requested.
+Keep the work's rules, parameter meanings and edit locations here; put actual
+checks and pending verification in the task report. The App creates
+docs/creator-handoff.md when a handoff is recorded; a new Blank has no pending tasks.
 
-PNDS App **不执行 npm install**，所以工程必须自带可用的 `node_modules/`。首次使用本模板：
+## Where to edit
 
-```sh
-npm install
+| File                                              | Purpose                                                              |
+| ------------------------------------------------- | -------------------------------------------------------------------- |
+| `public/monitor.html`                             | Monitor markup and script entry                                      |
+| `public/monitor-view.json`, `lib/monitor-view.js` | Low-frequency view declarations, validation and lazy synchronization |
+| `public/monitor.js`                               | Score drawing, monitor interaction and parameter callbacks           |
+| `public/performer.html`, `public/performer.js`    | Performer markup and interaction                                     |
+| `public/style.css`                                | Initial shared styles; split by page when needed                     |
+| `pnds.preview.json`                               | Exact tunable literal declarations; initially empty                  |
+| `public/pnds-preview.mjs`                         | Shipped local preview protocol adapter                               |
+| `server.js`                                       | HTTP resources, health, script snapshots and lifecycle               |
+| `performance/state.js`                            | Shared live/replay work state, application and effect callbacks      |
+| `performance/recording.js`                        | Capture, replay and common-time protocol wiring                      |
+| `audio/controller.js`, `supercollider/`           | Audio and OSC implementation; initially silent                       |
+
+Keep HTML, JavaScript and CSS in their respective files. Add shared code and
+assets when needed. The server serves public files and the local Socket.IO client,
+with MIME and `Cache-Control: no-store`.
+
+Express 5.3.0, Socket.IO 4.8.4 and osc-min 2.1.2 are the default production
+dependencies, supplied by the App's exact shared references. Express owns the
+role routes while the bounded public-file resolver retains its MIME, canonical
+path and cache rules. The server loads the injected absolute Node entries;
+the audio controller imports osc-min's ESM entry by file URL and uses its actual
+DataView byte offset/length for UDP. Missing or mismatched entries fail explicitly,
+without an npm, CDN or download fallback. Both pages
+load `/socket.io/socket.io.js` locally and connect with `io()` to their own origin.
+The server owns one Socket.IO instance per HTTP port, available through
+`realtime.get('performer')` and `realtime.get('monitor')`. A connection receives
+`pnds:connected` with the project ID and server-assigned role. Performers send
+through `PNDS_PLAYER.sendControls` / `sendAction`, while monitor keeps its own
+`socket`. Policy callbacks check ownership and delegate to `recording`; put
+recorded work behavior in the shared performance application described below.
+Socket IDs identify connections. The default players core is already wired with
+a no-seat persistent identity policy; do not adopt it again. No piece-specific
+control or sound mapping exists yet.
+
+Internal is the default: the audio controller and compiled SynthDef produce
+silence on the injected private buses. External and None remain available.
+Keep the controller, SCD source and compiled SynthDefs consistent when replacing
+the placeholder.
+
+Adopt other fixed shared packages only when the task needs them, then wire local
+routes/imports. App playback stays offline and needs no npm installation.
+Standalone development can install the exact package.json dependency locally;
+Internal still requires the Host's audio environment.
+
+The project .gitignore also applies to external Git tools; runtime
+assets, SCD sources and compiled SynthDefs remain versioned.
+
+## Saving, loading and verification
+
+| Saved change                                                          | How it reaches a running project                                    |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Public HTML, JavaScript, CSS or assets                                | Refresh the affected monitor or performer page                      |
+| Node server, its imported code, manifest or monitor-view declarations | Restart the project                                                 |
+| SynthDef source                                                       | Compile saved sources, then restart to load the published artifacts |
+
+The creator controls page refresh and project restart in the App. Report saved
+files, compilation, loaded runtime version and observed visual/audio behavior
+separately, with actual checks and pending verification. Saving or compiling
+does not establish that the running project loaded the change or that it sounds right.
+
+Changed `supercollider/source/*.scd` inputs and missing or stale required
+`.scsyndef` artifacts must be compiled before delivery. Validate embedded SynthDef names, artifact filenames
+and all manifest references; an unchanged input/artifact set may reuse a valid
+compilation receipt. JavaScript-only control mappings or runtime parameter changes
+need no recompilation unless they also affect the SynthDefs.
+
+In the App's Work mode, required compilation runs automatically; the assistant
+can also call `compile_synthdefs`. External agents use an available compiler
+entry or local `sclang`, following `reference/supercollider.md` through AGENTS.
+`pnds check --run --compile` compiles a temporary check copy; it does not update
+the original project's artifacts. Publish and verify actual project artifacts
+before reporting the build complete. Compilation leaves the active performance running.
+
+## Adding an adjustable parameter
+
+State each parameter's meaning, unit, range and mapping in code and this guide,
+keeping controls, saved values and callbacks consistent. For example, distinguish
+Hz from normalized pitch, ms from seconds, and linear gain from dB. Explain any
+conversion at its boundary; place metadata only in fields supported by the format.
+
+The monitor's preview plumbing is ready but starts with no parameters or controls.
+In Work mode, the assistant completes all three steps, then publishes the saved
+controls. For a title-size task, for example:
+
+1. Define the actual mutable value in `public/monitor.js`, apply it to the page,
+   and replace `previewParameters` with real callbacks:
+
+   ```js
+   let titleSize = 48 // px
+   const renderTitleSize = () => {
+     document.querySelector('h1').style.fontSize = `${titleSize}px`
+   }
+   renderTitleSize()
+   const previewParameters = {
+     titleSize: {
+       kind: 'number',
+       limits: { min: 12, max: 120, step: 1 },
+       get: () => titleSize,
+       set: value => {
+         titleSize = value
+         renderTitleSize()
+       },
+     },
+   }
+   ```
+
+2. Register the same ID, kind, limits and exact whole-line anchors in
+   `pnds.preview.json`, preserving other entries:
+
+   ```json
+   {
+     "schemaVersion": 1,
+     "parameters": [
+       {
+         "id": "titleSize",
+         "path": "public/monitor.js",
+         "prefix": "let titleSize = ",
+         "suffix": " // px",
+         "kind": "number",
+         "limits": { "min": 12, "max": 120, "step": 1 },
+         "preview": "live"
+       }
+     ]
+   }
+   ```
+
+3. Save, run available checks, and expose the native-bound saved parameter.
+   Refresh the saved monitor once before previewing newly saved code. Dragging
+   is temporary; Save parameters persists adjustments with task undo. Ending
+   preview restores the runtime baseline, not elapsed musical time.
+
+Keep the monitor's script reference: the server pins `public/monitor.js` bytes
+for each page and embeds their digest with the exact declaration digest. An
+old page remains bound to its loaded version after another save. If parameters
+move into additional files, extend their actual load snapshots and callbacks
+too. Hashing later disk bytes cannot prove they were loaded. Callbacks should
+apply declared values to real state and redraw paused scores when necessary;
+audio callbacks use only the project's already enabled audio.
+
+Static checks remain available during a performance. An occupied runtime blocks
+the independent runtime check without stopping the project. Verify actual visual
+and audio behavior separately. Platform contracts are linked from `AGENTS.md`.
+
+## Confirmed browser entry
+
+The generated manifest declares browser participation protocol 1 and runtime
+listener handoff. Performer resources use relative URLs; the Host supplies
+`./__pnds/context.js` after confirmation. Keep every asset/Worker request under
+`PNDS_PARTICIPATION.resource(relative)` and pass a copy of
+`PNDS_PARTICIPATION.socketOptions` to Socket.IO. Use
+`PNDS_PARTICIPATION.storageKey(key)` for stable Host/project data, rather than a
+performance ID. This namespace prevents accidental mixing, not origin-level
+security isolation. Blank reports page preparation after accepted identity and persisted browser claim;
+stronger piece-specific resource requirements remain your responsibility.
+Standalone addresses retain their original behavior without Host confirmation.
+
+## Default performer identities
+
+`players/policy.js` wraps `modules/pnds-players/protocol.js`; `public/performer.js`
+loads its shared connector from the bounded `/pnds-players.js` route. The page
+exposes `PNDS_PLAYER` (`identity.id`, `sendControls`, `sendAction`, `onChange`).
+The policy checks the current connection owner before delegating `onControl`,
+`onAction` and `onRelease` to `recording`; preserve these gates. Its `snapshot`
+describes admission policy state. Keep work state and effects in `performance`,
+using the shared live/replay callbacks below.
+The monitor is an observer and has no performer admission handler.
+
+Only claim → random performer UUID mappings are durably stored at
+`.pnds-creation/players.json`. Controls, contacts, score selection and sound state
+are separate per-run work state. Corrupt, foreign-project, linked or non-private
+registries and persistence failures are errors, never a successful recovery.
+The private directory is excluded from Git, source tools/fingerprints and default
+project bundles. Copying the complete folder including hidden data carries its
+claims; ordinary project distribution starts a new identity registry.
+
+Claims use the confirmed Host/project storage scope and never a performance ID.
+Standalone keys use the manifest project ID. A native test-window label adds an
+independent suffix, so test windows on one Mac are not merged. Storage rejection
+shows a page error and does not report successful preparation. A new performance
+still requires explicit entry; logical takeover never transfers camera or
+microphone ownership. Verify real device/browser behavior separately.
+
+## Monitor view declarations
+
+Monitor view synchronization is included and wired. `public/monitor-view.json`
+starts as `{}`: the server does not create `/monitor-view` and the page does not
+open its extra socket. Declare only actual low-frequency work view choices, for
+example:
+
+```json
+{
+  "displayMode": { "default": "score", "values": ["score", "details"] },
+  "detailLevel": { "default": 1, "min": 0, "max": 5 }
+}
 ```
 
-依赖只有四个：`express`、`socket.io`、`osc-min`、`qrcode`。
+Each field requires `default`; its JSON type is enforced. Optional `values`
+restrict choices; numeric `min`/`max` bound numbers. Invalid declarations fail
+startup. Edit the declaration and restart the project; saved changes do not
+silently replace the running schema. `lib/monitor-view.js` validates updates and
+wires the frozen module in `modules/pnds-monitor-state/` only when needed.
+The monitor's `/__pnds/monitor-view.json` returns that run's actual declarations.
 
-### 2. 运行
+In `public/monitor.js`, subscribe to `window.PNDSMonitorView.onViewState(state =>
+{ /* render state */ })`. State is null while waiting for a fresh snapshot.
+`PNDSMonitorView.setViewState('displayMode', 'details')` reports a choice; render
+only from the server's resulting complete snapshot. `viewState` reads and each
+subscriber receive independent copies. `error` exposes rejected updates or
+configuration-loading errors. Late copies, reloads and reconnects converge on
+the current run's state; stopping and reopening starts from declared defaults.
+Page release closes only its own view socket. The ordinary monitor connection
+remains an observer and never becomes a performer.
 
-脱离 App 单独调试：
+Do not put score time, high-frequency performance input, sound, claims, App QR
+visibility or projection-start state in this channel. App QR belongs to the
+Host. The frozen generic module README's historical `showQr` example describes
+older custom projects, not this Blank's App QR or projection controls. This
+default is already present in the resource catalog; do not add it again or
+create a pending wiring/handoff task. Author changes remain project-owned.
 
-```sh
-npm run dev:none    # 无音频模式（只测试页面与网络）
-npm run dev         # Internal 模式（需本机 scsynth 在 57110 端口）
-```
+## Default performer input
 
-在 PNDS App 中运行：App 中点击 **Open**，选择本文件夹，音频模式选 **Internal Synth**。
+Blank already wires `public/pnds-input.js` to the admitted `PNDS_PLAYER` on
+`<main>`. Edit this surface and the piece's feedback; do not add p5/ml5 or an
+optional input module. Mouse means one contact; touch hardware can provide
+several independent contacts. Pointer-capable pages consume only pointer events,
+including the App's mouse test path; native simulated/compatibility touch cannot
+enter the work twice. Older touch-only pages use changedTouches with a normal
+single-mouse fallback, suppressing compatibility mouse after touch. Native form
+controls retain their own behavior.
 
-### 3. 两个页面
+Each gesture has an opaque ID and start/move/end/cancel phases. Coordinates are
+relative x/y and normalized nx/ny with width/height measured at each event, so
+resize, orientation, zoom and fullscreen do not keep stale bounds. The technical
+limit is 64 concurrent contacts per performer. Blur, hidden documents, capture
+loss, disconnect and explicit close cancel only owned gestures; a terminal event
+can reuse its last valid geometry after a surface collapses. Old terminals do
+not cancel a successor. `PNDS_INPUT.close()` releases input without closing the
+player; page release closes both. No held input is queued for reconnection.
 
-| 页面 | 地址 | 用途 |
-|---|---|---|
-| Performer | `http://<Host-LAN-IP>:6868/`（App HTTPS 入口生效时为完整 `PNDS_PERFORMER_URL`） | 演奏者触摸界面（手机横屏） |
-| Monitor | `http://<Host-LAN-IP>:6869/`（始终内部地址） | 监视端：客户端列表与声道分配 |
+After current claim-owner validation, `server.js` delegates to `recording.input`.
+`performance/recording.js` validates with `performance.prepareInput`, captures
+accepted input and sends it through the same `performance.applyEvent` and
+`applyWork` application used by replay. Extend `performance/state.js` with work
+state and effects, maintaining `snapshot`, `restoreWork` and `releaseWork` together.
+Keep server policy callbacks as admission and delegation boundaries.
+Accepted contacts live in the actual per-run state, separate from durable
+identities, score selection, recording time and audio channels. `release(id)`
+clears that source. `snapshot()` returns detached
+`{ performers: [{ id, contacts: [{ id, pointerType, x, y, width, height, nx, ny }] }] }`.
+The existing performer/monitor Socket.IO connections publish full snapshots on
+`pnds:performance`, including on initial connection; monitor-view is exclusively
+for low-frequency view settings. For an explicit author feedback task, a monitor
+can render these accepted contacts with `socket.on('pnds:performance', render)`.
+Blank ships the input/state wiring without an example artwork or sound preset.
 
-默认端口来自 `manifest.json` 的 `scoreServer.performerPort` / `monitorPort`——这是**唯一来源**。`public/shared.js` 和浏览器都会自动读取，不需要手动同步。端口惯例与选择建议见参考手册的 [manifest.md「端口」节](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/manifest.md)。
+Validate the edited real project and its observable feedback. Controlled DOM
+pointer/TouchEvent cases prove the data path, not physical multi-finger hardware,
+phone behavior or heard sound; record those acceptance results separately.
 
-## 作品规格（当前实现，随创作改写）
+## Default performance recording
 
-从模板创建时，此处描述的是模板示例；从「开始」新作品起（见 [start.md](start.md)），这里就是**本作品的规格文档**——行为改动时同步改写它，保持与代码一致。
+The bottom-bar Performance recordings control already records accepted Blank
+contacts, replays them, adds passes and rerecords a whole pass. Do not add a
+recording module. `pnds.recording.json`, `performance/recording.js` and the
+shipped `recording/adapter.cjs` are actual default wiring. App owns recording
+storage, pass management and the common-time driver; the project owns all
+meaningful state and effects. Existing custom adapters are not replaced.
 
-- 演奏者界面：**手机横屏**触摸；竖屏时提示旋转。左半屏是 **FREQ 推子**（音高），右半屏是 **AMP 推子**（音量）。
-- 推子值经 Socket.IO 发到 score server，由 server 转为 OSC 控制 SuperCollider。
-- 每个加入的客户端获得一个 sine voice（一个 `template-sine` synth）。
-- FREQ 推子映射频率在 `public/shared.js` 的 `freqRange` 定义（**单一事实来源**）：performer 页面用它显示 Hz，server 的 `audio/controller.js` 从同一对象读取并映射为 OSC 频率，改一处两边同步。
-- FREQ 推子带**音高参考刻度**：范围内每个半音一小格（19 格），只标 3 个音名（中心音及其上下五度），这 3 格的刻度用**更亮的颜色**区分；范围两端不在音高上，不设刻度。刻度数据在 `public/shared.js` 的 `freqTicks`（单一事实来源）。
-- **三档音区 switch**（居中，位于状态文字下方）：`1`（低音）/ `2`（中音）/ `3`（高音），切换左侧 FREQ 推子的频率区段。推子位置不变，Hz 映射随音区改变（server 按同一音区映射）。音区数据在 `public/shared.js` 的 `registers`（单一事实来源）：每区都是同样的 19 半音结构，中心音分别为 **E6 / A5 / D5**（相邻区中心相差 7 半音；整体比原 1000–3000 Hz 低一个五度），标注音名分别为 A-E-B / D-A-E / G-D-A——**每区的标注音 = 上一区整体下移一个五度**（中心音即上一区的下五度）。
-- AMP 推子使用 **audio taper 曲线**（`value²`）：推子下半段控制更细腻。
-- 推子值在 scsynth 端做 **平滑**（`Lag.kr`，amp 50ms / freq 100ms），推子移动是滑动的，不产生突变/zipper noise。
-- **每个 voice 输出上限 -6 dB**（在 SynthDef 内 `amp * 0.5` 实现）。
-- 客户端上限 = 输出声道数（manifest 默认 16；App 注入 `PNDS_AUDIO_OUTPUT_CHANNELS` 时以注入值为准）；满员时新客户端被拒绝。
-- 默认声道：**奇数 id → 声道 1，偶数 id → 声道 2**（相对 `PNDS_AUDIO_OUTPUT_BUS`）。
-- Monitor 端可把任意客户端的输出声道改为 1..N（N = server 实际解析的输出声道数，经 `__config.js` 注入浏览器，与 server 校验同源）；允许重叠。Monitor 页下方显示 **performer 页面的 QR 码与其可复制地址**（`GET /qr` 由 `lib/qr.js` 生成，地址文本来自同一解析结果——见上文「完整 performer URL」）。
-- **Monitor 端可调演奏序号**（ID 下拉，与声道分配同款交互）：把设备移到空闲序号——分配、voice（带当前状态原位重建）与座位记录一并迁移，performer 页面经 `joined` 事件自动跟进新序号。目标序号被在线设备占用时不动；被陈旧座位记录占用时覆盖（操作员意图优先）。
-- 客户端断开后，重连（同一浏览器，token 保存在 localStorage）会**恢复原 id 与最后推子状态**；恢复**一次到位**——voice 直接以持久化状态创建（单条 `/s_new` 携带正确的音量/频率/声道），不经过默认值中间态，锁屏重连不会在错误声道出声。
-- **座位记录跨重启持久**：server 把每台设备的演奏序号与声道（`token → {id, out}`）写进工程根目录的 `.pnds-seats.json`，重新开启工程时同一台设备（同一浏览器）自动拿回原序号与原声道；推子状态（freq/amp）不跨重启，重启后归零。座位为其设备保留——新设备不会占用已记录的序号；陈旧记录（不会再来的手机）占满座位时，用 monitor 页右上角的 **重配 ID** 按钮清空全部记录（在线设备会被断开重连、按重连顺序拿新序号，声道回默认）。测试或 App 可用环境变量 `PNDS_SEATS_FILE` 把状态文件指到别处。
-- Performer 状态行显示 **`ID: N CH: N`**：CH 来自 state 广播，monitor 端改道后实时更新。
-- score server 的终端日志记录协议生命周期（join / disconnect / rejected）——现场排查"幽灵客户端"循环重连时看这里。
+Live input goes through current-owner and contact validation, then capture and
+the same `applyEvent` used by replay. Replay bypasses capture. A successful
+ordinary Record stop preserves live held input. Overdub preserves those real
+held contacts and seeds their starts at the new pass's 0ms; a reused device has
+an independent recorded source in each pass. Replay restoration filters initial
+held input by the native replay performer membership, so rerecording or deleting
+a pass cannot resurrect its old touches. The default contains no artistic
+selection, score transport, timbre or musical voices.
 
-座位机制的完整故事（claim token、分配与恢复、协议消息）见模块手册的[乐手身份与座位](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/players.md)。
+When adding real state, visuals, sound or new actions, extend the closed loop in
+this same task. `snapshot()` must return actual work state alongside contacts;
+keep `snapshotInput()` as the pure contact snapshot used for ownership cleanup.
+The editable performance object can provide these synchronous work callbacks:
 
-## 完整 performer URL（可选，App HTTPS 入口）
+| Callback                                              | Actual responsibility                                                                                                                                                                                                                                                                                |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `restoreWork(state, members, context)`                | Release/restore composition and choices using allowed recorded members; `context.liveIds` and `context.currentState` identify genuine retained live state. Held input is reapplied through the shared business entry afterwards.                                                                     |
+| `applyWork(event)`                                    | Apply the real input/action/conductor effect. `sourceId` is the effective live or namespaced replay source; `performerId` is separate recording metadata; `atMs` is null for live work and recording-relative during replay. Treat join/selection metadata as facts, not duplicate musical triggers. |
+| `releaseWork()`                                       | Idempotently release all work-owned effects/resources, including a partial restore.                                                                                                                                                                                                                  |
+| `advanceWork(elapsedMs)`                              | Advance actual time-dependent work state, preserving pause/seek and the difference between score position and recording elapsed time. Add it only when real progression exists.                                                                                                                      |
+| `prepareAction(payload)`, `prepareConductor(payload)` | Validate and normalize the work's real discrete actions and common conducting, or return null.                                                                                                                                                                                                       |
+| `selectionFor(sourceId)`                              | Report the work's actual independent selection, if any; never infer it from a device/window number.                                                                                                                                                                                                  |
 
-App 的本地可信 HTTPS 入口（契约见参考手册 [runtime-contract.md §15](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/runtime-contract.md)）生效时，会注入完整 performer 根 URL `PNDS_PERFORMER_URL`（如 `https://show.example.org:8443/`）。本模板按该契约适配——`manifest.json` 声明 `scoreServer.supportsPerformerUrl: true` 表示这层能力：
+Incomplete work callbacks fail explicitly. Keep callbacks synchronous; future
+asynchronous application needs its own ownership/serialization design. A
+capability declaration or an empty callback does not prove arbitrary new music
+can replay. Check actual live/replay/overdub/rerecord effects after extending
+these callbacks. The existing `pnds:conduct` monitor handler gates common
+conducting at the effective server entry; admitted performer actions still work
+in overdub. No default conductor command is invented.
 
-- **一个 URL 三处共用**：`lib/config.js` 的 `resolvePerformerUrl()` 是唯一解析点（提供 `PNDS_PERFORMER_URL` 时用它，否则回落 `http://<PNDS_HOST_IP>:<performerPort>/`，现行为不变）；QR 码（`GET /qr`）、monitor 页二维码下方可点选复制的地址、浏览器注入的 `__config.js` 都消费同一个值，不会漂移。
-- **手机侧同源**：performer 页的脚本与 Socket.IO 全部走**当前 origin**（`location.origin`）——`public/client.js` 的 `connectPerformer` 接 `origin`（页面传 `location.origin`），`index.html` 的 socket.io `<script>` 同源加载。HTTP 模式下该 origin 就是 performer 端口，HTTPS 入口下就是入口 origin，页面代码零分支。
-- **页面角色由服务端注入**：`__config.js` 的 `role` 字段（performer / monitor 由**哪个端口的服务**吐出配置决定），`index.html` 据此分支——不比较浏览器端口。入口的端口是网关的、与 manifest 端口无关，端口比较在入口之下不可靠。
-- **monitor 保持内部连接**：monitor 页仍从 monitor 端口加载、跨端口连 performer 服务（`socketOrigin` + `connectMonitor`），不经外部入口，也不加载入口 origin 的资源。
-- **claim token 按 origin 隔离**：localStorage 的 token 只在同一 origin 下可读——同一 HTTPS origin 的断线重连照常复用 token 恢复座位（工程零改动）；协议、域名或端口变化（含 HTTP → HTTPS 切换）后设备按新加入处理，不承诺跨 origin 迁移。
-- **工程身份随入口发布**：`__config.js` 同时注入 `projectId`（manifest.id）与 `performerUrl`——入口的接入上下文由此绑定到当前工程，供 App 侧网关后续拒绝与当前工程不匹配的旧入口。
+### Work data versions and existing recordings
 
-基于本模板的新作品默认继承这层适配（`lib/` 骨架 + `public/` 的连接层都在模板内）；重写页面层时保持「同源连接 + 服务端角色注入 + 地址单源」三条即可。
+When changing input interpretation, geometry, sound mapping or randomness,
+maintain the information recording needs in the same task. Retain necessary raw
+input and put selected objects, discrete actions and actual random outcomes in
+captured events or the work snapshot. Live and replay share these accepted data.
+The default `prepareInput` rejects an entire contact with unknown fields; extend
+validation, application and snapshots together, or capture authored actions
+through `prepareAction`.
+Capture choices made during performance when they occur, or derive them
+deterministically from restored seed/state. The begin snapshot contains only the
+starting state and cannot record later random decisions.
 
-## 主题跟随（可选，App 集成）
+Version work-owned snapshots/events separately from the App recording container
+and adapter protocol. In `restoreWork` or the common business entry, interpret
+detached older data with explicit missing-field defaults, deterministic inference
+or an incompatibility error, preserving original recordings. Document the basis
+and limits of inference here. Restore saved random choices or repeatable
+seed/state so the same recording produces the same choices on every replay.
 
-PNDS App（≥ v1.2.3）会把当前主题（Lavender / Sand / Stage / Brutal）经跨域 `postMessage` 推给 monitor 页，工程**可选**消费；消息 best-effort、最新值覆盖、页面幂等应用。本模板的 monitor 页用 **p5 绘制（无 CSS 变量）**，示范**回调消费**路径：`public/index.html` 在 monitor 分支加载 `lib/theme-follow.js`（经 `GET /__pnds/theme-follow.js`）并设置 `window.PNDS_THEME_OPTIONS = { applyVariables: false, onTheme: ... }`，`public/monitor.js` 把 palette 映射成画布颜色，新调色板下一帧生效。DOM 页面（无 canvas）可零配置直接用默认的 CSS 变量路径。performer 分支不加载该模块、永远用工程自带配色（缺席 `?theme=` 初值时 monitor 亦用 `monitor.js` 里 `DEFAULT_THEME` 的深色）。
+Verify changed real effects and repeatability with an existing recording, then
+check new capture, overdub and rerecord. When no old record exists, retain a
+minimal older-version regression fixture. Exercise actual input, restoration and
+visual/audio entries; the common recording foundation supplies no universal
+geometry recognition or interpretation for missing work-specific data.
 
-模块的消息协议、选项口子与映射细节见模块手册的[主题跟随](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/theme-follow.md)。
-
-## 语言跟随（可选，App 集成）
-
-PNDS App（≥ v1.3.0）会把当前界面语言（`en` / `zh-CN`）经 `pnds:locale` v1 消息推给 monitor 页（与主题桥同一套机制：单向、尽力而为、最新值胜、幂等；不实现则完全不受影响）。本模板的 monitor 页：`public/index.html` 在 monitor 分支加载 `lib/locale-follow.js` 并设置 `window.PNDS_LOCALE_OPTIONS = { onLocale }`，`public/monitor.js` 的 `applyLocale()` 切换 `STRINGS` 字串表并重贴 DOM 控件标签，新语言下一帧生效。**无推送时的默认语言是 zh-CN**（不调用该能力时操作面文案与从前一致）；页面支持哪些语言由 `locales` 声明（默认 `['en', 'zh-CN']`）。performer 分支不加载该模块。
-
-加语言：改 `public/monitor.js` 的 `STRINGS` 与初始化的 `S`，同步在 `public/index.html` 的 `PNDS_LOCALE_OPTIONS` 声明 `locales`。模块的解析语义（精确匹配 → 基础语言匹配 → fallback）与口子见模块手册的[语言跟随](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/locale-follow.md)。
-
-## monitor 视图状态同步（多副本一致）
-
-同一个 monitor URL 会被加载成多个副本：App 主窗 iframe、App 投影窗口 iframe、⌘⇧R 重载后的新副本、浏览器标签页。视图调整（开关、调试选择）若放页面本地，每个副本各自从默认值起步——主窗里调好的内容，投影端要重新调一遍，重载即丢。本模板把 monitor 视图状态搬到**工程 server 单一持有**：`lib/monitor-state.js` 挂在 Socket.IO 的 `/monitor` namespace（`public/shared.js` 的 `monitorNamespace`），连接即推快照、任一副本 `set` 即向全部副本广播**完整状态**。页面（`public/client.js` 的 `connectMonitor` 传 `monitorNamespace` 后）从 `viewState` 渲染、调整走 `setViewState` 上报，**不改本地**；快照落地前视图相关 UI 保持隐藏（不闪默认值）。**App 侧零改动**——两副本本就各自直连工程 server，App 不在这条数据路径上（这也是模式不受 App 版本约束的原因）。
-
-- 状态**按键 opt-in**：`public/shared.js` 的 `monitorViewState` 声明本作品要同步的键与默认值（示例只有一个 `showQr`）；未声明的键 server 一律忽略，页面可保留纯本地状态（如悬停高亮）。
-- 生命周期 **session 级**：内存持有、不落盘（与座位 registry 的磁盘持久化明确区分）——重启即回到默认，每场演出从干净状态开始。
-- 广播范围**仅 monitor 侧客户端**：performer 页从不连 `/monitor` namespace，结构性零感知。
-- 示例：monitor 页右上角「显示/隐藏二维码」按钮——投影副本不想给观众看二维码时，在主窗副本点一下即可，所有副本同步跟随。
-
-协议细节（三事件、页面接线、自定义键）见模块手册的 [monitor 视图状态](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/monitor-state.md)。
-
-## 独立可交付技术模块（0.2.0）
-
-`modules/` 是六项独立源码交付单元：`qr`、`players`、`theme-follow`、`locale-follow`、`monitor-state`、`hub`。每个目录含实际源码、CommonJS 范围的 `package.json`、双语 `README.md` 与 `compatibility.json`。模块版本、Host 协议、运行依赖和作品适配条件分别说明；App 版本不代替已加入源码版本。目录中的说明使用对应源码公开接口，复制后由作品维护，不会自动升级定制实现。
-
-Template 原有 `lib/` 与示例接线保持现状；独立模块适合其他工程按需采用，其事件、身份、声音、画面与摘要策略由作品决定。两个客户端/monitor 状态条目可以共同加入；主题与语言条目独立加载。hub 使用既有 `PNDS_NODE_ID`、`PNDS_HUB_URL`、`PNDS_HUB_TOKEN`、`PNDS_HUB_ROOM`，继续遵守 Host 的 telematic 配置门；本地手机连接本现场 performer，远端节点数与乐手摘要条数分开。
-
-接线先读各模块 README 与装机帮助 `help/zh-CN/modules/README.md`，缺装机资料时查 [App 模块索引](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/README.md)；运行契约使用同版 `reference/runtime-contract.md`。App 的文件加入与来源记录仍是待接线交接，不等于依赖已安装、入口已引用或实际运行已验证，也不要求安装 Skills。
-
-`fixtures/modules/` 和 `test/modules-*.test.js` 使用本次交付源码，通过真实 HTTP、Socket.IO、中央 hub 子进程、独立工程节点和本地客户端验证技术行为；fixture 不带入示例艺术规则。`npm run check` 同时检查这些模块和 fixture 的语法，`npm test` 运行原示例与模块回归。本次集成在实际 Template 目录通过 `npm run check` 与 `npm test`（153/153）。
-
-2026-10-14 已在真实浏览器检查 `fixtures/modules/display-server.cjs`：首帧 Stage/en 的主题和语言回调各 1 次；重复消息保持各 1 次；切换到 Pond/zh-CN 后各 2 次；释放后再次切换没有改变已有显示。实际 QR 图片显示正常，performer 页面保持独立。另由 macOS Vision 独立解码 HTTP 返回的 PNG，核对完整 URL 的协议、端口、路径、查询与片段。这里分别记录浏览器与自动解码证据；真实 WKWebView、手机扫码、外部公网、声音与演出负载仍由作者验收。
-
-## 目录结构
-
-```
-manifest.json             PNDS 工程契约（App 只认它和 server 入口）
-server.js                 作品主 server：编排协议（通常不用改）
-lib/                      可复用核心，任何 PNDS 工程通用（template 骨架，通常不用改）
-  config.js               manifest / CLI / 端口 / 环境变量 / 完整 performer URL 解析
-  network.js              LAN IPv4 枚举
-  health.js               /__pnds/health
-  osc-transport.js        UDP OSC 传输（osc-min + dgram）
-  audio-engine.js         scsynth 会话生命周期（bus / group / synthdef 加载）
-  players.js              客户端 id 分配与重连恢复（claim token；已记录座位优先、他人座位保留）
-  seats-store.js          座位记录持久化（token → {id, out}，跨重启；`.pnds-seats.json`）
-  protocol.js             Socket.IO 协议：join / claim / 重连恢复 / 控制转发（载荷不透明，字段语义在作品层）/ 座位记录 / 重配 / 广播
-  monitor-state.js        monitor 视图状态单一事实源（/monitor namespace：连接推快照、set 广播；内存 session 级，见上文「monitor 视图状态同步」）
-  lifecycle.js            优雅关闭
-  theme-follow.js         主题跟随（App ≥ v1.2.3，可选）：消费 pnds:theme 消息（见上文「主题跟随」）
-  locale-follow.js        语言跟随（App ≥ v1.3.0，可选）：消费 pnds:locale 消息（见上文「语言跟随」）
-  qr.js                   performer 页面 QR 码（GET /qr）
-audio/                    作品音频语义层：推子 → synth 参数的映射（创作时改这里）
-  controller.js           每客户端一个 voice，声道分配，外部 OSC 协议
-public/                   浏览器端（performer + monitor 双角色单页）
-  index.html              双角色入口（按服务端注入的 role 加载不同脚本；socket.io：performer 同源 / monitor 跨端口）
-  shared.js               浏览器与 server 共用的常量：事件名 / 频率范围 / 入口上下文（单一事实来源，见下文）
-  client.js               浏览器端 score-server 客户端：performer 同源加入/重连恢复/去抖发送、monitor 内部连接与状态视图（页面只管绘制与输入；有 Node 测试）
-  performer.js            演奏者横屏推子界面（p5）
-  monitor.js              监视端：列表 + 声道分配 + 重配 ID 按钮
-  style.css
-  libraries/p5.min.js     p5 库（本地文件，演出离线可用）
-supercollider/
-  source/                 SynthDef 创作源码（.scd）——唯一事实源
-    template-sine.scd     本模板的 sine voice 定义
-  debug/                  External debug bridge（创作期工具）
-  synthdefs/              已编译 .scsyndef（运行时 artifact，manifest 引用）
-test/                     node --test 回归测试（AI 编程助手改工程后跑它验证，见 AGENTS.md）
-docs/                     本手册
-```
-
-## 创作时改什么
-
-| 想做什么 | 改哪里 |
-|---|---|
-| 换作品名 / 端口 / 声道数 | `manifest.json`（改端口只需改这里） |
-| 改推子 → 声音的映射 | `audio/controller.js` |
-| 加一个控制字段（如新推子） | `public/performer.js`（发送）+ `audio/controller.js`（在 `applyControls` 读取并钳位；协议层不透明转发，`lib/` 不用动） |
-| 改声音本身（波形、效果） | `supercollider/source/template-sine.scd`，然后重新编译 |
-| 改演奏者界面 | `public/performer.js`（p5） |
-| 改监视端 | `public/monitor.js` |
-| 改主题跟随 | `lib/theme-follow.js`（默认映射、onTheme / derive 口子、?theme= 初值） |
-| 改界面语言 / 加语言 | `public/monitor.js` 的 `STRINGS`（加语言同步加 `locales`；locales / fallback 口子见 `lib/locale-follow.js`） |
-| 调设备演奏序号 | monitor 页 ID 下拉（目标序号需空闲） |
-| 清空设备座位记录（换手机阵容） | monitor 页 **重配 ID** 按钮，或删除 `.pnds-seats.json` 后重启 |
-| 加 Socket.IO 事件 | `public/shared.js`（事件名）+ `lib/protocol.js`（处理——核心协议语义，一般不需要） |
-| 加 / 改 monitor 视图状态键（多副本同步的开关、调试选择） | `public/shared.js` 的 `monitorViewState`（声明键与默认值）+ `public/monitor.js`（渲染与 setViewState 上报；机制见模块手册 [monitor 视图状态](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/modules/monitor-state.md)） |
-| 改推子频率范围 / 音区 | `public/shared.js` 的 `registers`（每区 `freqRange` + `freqTicks`；页面显示、刻度与 server 发声自动同步，无需改 `audio/controller.js`） |
-| 改客户端上限 | `manifest.json` 的 `audio.outputChannels`（id 上限 = 输出声道数） |
-
-## 单一事实来源（Single Source of Truth）
-
-`public/shared.js` 是浏览器页面与 Node server **共用同一份常量**的模块：
-
-- 它用 UMD 包装：浏览器里挂到 `window.PNDS`（页面脚本里 `const P = window.PNDS` 取别名），Node 里走 `module.exports`（server 端 `require`）。
-- **Socket.IO 事件名**（`events`）、**频率范围**（`freqRange`）、**客户端上限**（`maxClients`）、**localStorage token 键名**（`tokenKey`）都在这里定义。
-- **端口**的单一来源是 `manifest.json`（App 工程契约）。`shared.js` 在 Node 端自动从 manifest 读取，浏览器端由 server 动态注入——创作者只需改 manifest.json。
-- 修改频率范围只需改 `registers`（每区 `freqRange.min / max`）一处：performer 页面的 Hz 显示与 server 端 `audio/controller.js` 的 `mapFreq()`（从 shared 读取）自动同步。线性映射辅助（`freqFromValue` / `freqFraction`）与推子刻度（每区的 `freqTicks`）也在 shared.js 中定义；`freqRange` / `freqTicks` 是默认音区（3）的别名。
-- 基于模板创建新作品时，建议修改 `tokenKey` 为与作品 id 一致的名称（如 `”my-work-token”`），避免不同工程共用同一个 localStorage 键。
-
-## 声音：编辑与编译 SynthDef
-
-`.scd` 是创作期源码与唯一事实源，`.scsyndef` 是运行时 artifact。改完 `.scd` 后必须重新编译，否则 App 加载的是旧声音：
-
-- 在 PNDS App 中打开本工程，`Settings → Developer Tools → Compile SynthDef`（使用本机安装的 SuperCollider）；
-- 或在本机自行运行 sclang。
-
-编译契约见参考手册的 [supercollider.md](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/supercollider.md)；本模板的实例：**SynthDef 符号名 = 产物文件名 = manifest 引用**（`template-sine`；带连字符的名字在 .scd 中须写作 `'template-sine'` 引号符号形式），产物写入 `supercollider/synthdefs/template-sine.scsyndef`，App 会在编译后逐个校验 manifest 引用的产物。
-
-## 音频模式
-
-| 模式 | 说明 |
-|---|---|
-| `internal` | App 托管 scsynth，加载编译好的 `.scsyndef`（演出模式） |
-| `external` | 向自定义 OSC target 发送作品协议（`/c<id>/amp`、`/c<id>/freq`、`/c<id>/out`） |
-| `none` | 不建立音频输出（只测试页面与网络） |
-
-三种模式的语义见参考手册的 [audio-modes.md](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/audio-modes.md)。External 模式调试：在 SuperCollider IDE 中先运行 `supercollider/source/template-sine.scd`，再运行 `supercollider/debug/template-debug.scd`，然后：
-
-```sh
-node server.js --audio-mode external --osc-target 127.0.0.1:57120
-```
-
-## 健康检查
-
-两个端口都提供：
-
-```sh
-curl http://127.0.0.1:6868/__pnds/health
-```
-
-PNDS App 以 JSON 中 `status === "ready"` 为显示条件；health 的完整契约见参考手册的 [runtime-contract.md](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/reference/runtime-contract.md)。
-
-## 发布
-
-带生产依赖的发布包由 `.github/workflows/package.yml` 构建（ALLOWLIST 裁剪，`node_modules` 预装，docs / test / 源码不进演出包）。完整的发布流程与发布前检查清单见 PNDS App 的[创作指南第 4 节](https://github.com/xO-xN/PNDS-App/blob/main/docs/zh-CN/template-guide.md)。
+Pure replay blocks new page contacts, with admission enforced by the server.
+Connection/identity loss still cancels owned input; mode notices only change
+`PNDS_INPUT.setStartsAllowed(...)` and never clear a later gesture globally.
+Playback restore and true release report only the live performer/gesture IDs
+actually cleared; `PNDS_INPUT.cancel(ids)` cannot cancel a successor if old
+playback/end notices arrive after a new recording has already accepted it. Mode notifications
+are sent only when facts change. An application fault, including Stop before
+the next poll, preserves incomplete recovery data and the prior complete record.
+Failed cleanup retries only that operation's owned release; normal recording
+stop does not restart or reset the work. Physical sound and real touch hardware
+still need their own acceptance evidence.

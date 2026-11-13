@@ -1,0 +1,9 @@
+{
+  "messages": {
+    "error": "Performer identity unavailable: ",
+    "ready": "Performer connected",
+    "waiting": "Connecting performer identity…"
+  },
+  "projectId": "pnds-blank-template",
+  "recordingPerformer": "Performer"
+}

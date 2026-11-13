@@ -1,64 +1,28 @@
-/* PNDS Template — shared styles for performer + monitor pages */
-
-* {
-  box-sizing: border-box;
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
 }
 
-html,
 body {
   margin: 0;
-  padding: 0;
-  height: 100%;
-  background: #14161c;
-  color: #e8ecf4;
-  font-family: -apple-system, "Helvetica Neue", sans-serif;
-  overflow: hidden;
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
 }
 
-#stage {
-  width: 100%;
-  height: 100%;
-}
-
-/* ---- rotate hint overlay (performer) ---- */
-
-#rotate-overlay {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: rgba(14, 15, 20, 0.94);
-  z-index: 100;
+main {
+  width: min(80%, 42rem);
+  padding-block: 5rem;
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
-#rotate-overlay.hidden {
-  display: none;
+h1 {
+  font-size: clamp(2rem, 7vw, 5rem);
+  font-weight: 500;
+  line-height: 1.15;
 }
 
-#rotate-overlay p {
-  margin: 0;
-}
-
-#rotate-overlay p:first-child {
-  font-size: 22px;
-  font-weight: 600;
-}
-
-#rotate-overlay p:last-child {
-  font-size: 14px;
-  color: #9aa3b5;
-}
-
-/* ---- monitor QR code ---- */
-
-.qr-image {
-  width: 180px;
-  height: 180px;
-  padding: 8px;
-  background: #ffffff;
-  border-radius: 8px;
+p {
+  line-height: 1.7;
 }

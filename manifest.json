@@ -1,31 +1,46 @@
 {
-  "schemaVersion": 1,
-  "id": "pnds-template",
-  "name": "Template",
-  "version": "0.6.0",
-  "description": "PNDS score project template: two-fader touch performer (amp / freq) driving one sine voice per client with 16-channel output.",
-  "scoreServer": {
-    "entry": "server.js",
-    "workingDirectory": ".",
-    "performerPort": 6868,
-    "monitorPort": 6869,
-    "supportsPerformerUrl": true
-  },
   "audio": {
     "defaultMode": "internal",
+    "outputChannels": 2,
+    "scsynth": {
+      "audioBusChannels": 128,
+      "blockSize": 64
+    },
     "supportedModes": [
       "internal",
       "external",
       "none"
     ],
-    "outputChannels": 16,
     "synthdefs": [
-      "supercollider/synthdefs/template-sine.scsyndef"
-    ],
-    "scsynth": {
-      "blockSize": 64,
-      "audioBusChannels": 64
+      "supercollider/synthdefs/pndsBlank.scsyndef"
+    ]
+  },
+  "description": "",
+  "id": "pnds-blank-template",
+  "name": "PNDS Blank",
+  "schemaVersion": 2,
+  "scoreServer": {
+    "browserParticipation": 1,
+    "entry": "server.js",
+    "monitorPort": 6869,
+    "performerPort": 6868,
+    "runtimePorts": 1,
+    "supportsPerformerUrl": true,
+    "workingDirectory": "."
+  },
+  "sharedLibraries": [
+    {
+      "id": "express",
+      "version": "5.3.0"
     },
-    "standaloneTarget": "127.0.0.1:57110"
-  }
+    {
+      "id": "socket.io",
+      "version": "4.8.4"
+    },
+    {
+      "id": "osc-min",
+      "version": "2.1.2"
+    }
+  ],
+  "version": "0.1.0"
 }

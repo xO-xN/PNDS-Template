@@ -1,293 +1,471 @@
-// PNDS Template — score server entry point.
-//
-// Composition root: wires the reusable core (lib/) to the work layer
-// (audio/controller.js):
-// - serves performer + monitor pages from public/ on both ports
-// - exposes /__pnds/health on both ports
-// - attaches the performer protocol (join / claim / restore / control —
-//   lib/protocol.js owns the semantics)
-// - shuts down cleanly on SIGINT / SIGTERM
+import http from 'node:http'
+import {
+  readFile,
+  realpath,
+  writeFile,
+  rename,
+  open,
+  stat,
+} from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { extname, sep } from 'node:path'
+import { createHash } from 'node:crypto'
+import { createRequire } from 'node:module'
+import { createAudio } from './audio/controller.js'
+import { prepareMonitorView } from './lib/monitor-view.js'
+import { createPlayerPolicy, playerEvents } from './players/policy.js'
+import { attachPlayers } from './modules/pnds-players/protocol.js'
+import { createPerformance } from './performance/state.js'
+import { createPerformanceRecording } from './performance/recording.js'
 
-const path = require("node:path");
-const express = require("express");
-
-const {
-  loadManifest,
-  parseCliOptions,
-  printUsage,
-  resolveAudioMode,
-  resolveOscTarget,
-  resolvePerformerUrl,
-  resolveServerConfig,
-  formatAudioMode,
-} = require("./lib/config");
-const { resolveHostLanIp } = require("./lib/network");
-const { HealthTracker } = require("./lib/health");
-const { AudioEngine } = require("./lib/audio-engine");
-const { PlayerRegistry } = require("./lib/players");
-const { SeatsStore } = require("./lib/seats-store");
-const { qrHandler } = require("./lib/qr");
-const { attachProtocol } = require("./lib/protocol");
-const { attachMonitorState } = require("./lib/monitor-state");
-const { ProjectAudio } = require("./audio/controller");
-const {
-  attachShutdown,
-  closeHttpServer,
-} = require("./lib/lifecycle");
-const shared = require("./public/shared");
-
-const PROJECT_ROOT = __dirname;
-
-// ------------------------------------------------------------
-// Configuration
-// ------------------------------------------------------------
-
-const manifest = loadManifest(PROJECT_ROOT);
-const cliOptions = parseCliOptions(process.argv.slice(2));
-
-if (cliOptions.help) {
-  printUsage();
-  process.exit(0);
+// App launches resolve the exact shared entry; standalone development uses npm's local install.
+const libraries = process.env.PNDS_SHARED_LIBRARIES
+const shared = libraries ? JSON.parse(libraries) : null
+const require = createRequire(import.meta.url)
+function sharedEntry(id, version) {
+  if (!shared) return id
+  const entry = shared[id]
+  if (!entry?.path || entry.version !== version)
+    throw new Error(`Missing exact shared ${id} ${version} entry`)
+  return entry.path
 }
-
-const audioMode = resolveAudioMode(cliOptions.audioMode, manifest);
-const oscTarget = resolveOscTarget(
-  cliOptions.oscTarget,
-  manifest,
-  process.env,
-);
-const serverConfig = resolveServerConfig(manifest);
-const hostLanIp = resolveHostLanIp(process.env.PNDS_HOST_IP);
-// The one full performer URL every outward surface shares — QR, the
-// monitor's copyable address, __config.js and the startup log. The App
-// injects PNDS_PERFORMER_URL while its HTTPS entry is in effect;
-// without it the LAN HTTP fallback keeps today's behavior (runtime-
-// contract §15).
-const performerUrl = resolvePerformerUrl(
-  process.env,
-  hostLanIp,
-  serverConfig.performerPort,
-);
-
-// ------------------------------------------------------------
-// HTTP servers (performer port + monitor port share public/)
-// ------------------------------------------------------------
-
-const app = express();
-const monitorApp = express();
-
-app.use(express.static(path.join(PROJECT_ROOT, "public")));
-monitorApp.use(express.static(path.join(PROJECT_ROOT, "public")));
-
-// Injects runtime config into the browser so shared.js can read it.
-// Ports come from the manifest; outputChannels is the RESOLVED channel
-// count (App-injected PNDS_AUDIO_OUTPUT_CHANNELS or the manifest value),
-// so the monitor page offers exactly the channels the server validates.
-//
-// `role` says which server served the page: under the App's HTTPS entry
-// the browser's port is the entry's, not the manifest's, so the page
-// must never infer its role from a port comparison (#138). performerUrl
-// is the one full URL the QR and the copyable address show; projectId
-// binds the entry's access context to this work's identity.
-function configScript(role) {
-  return (request, response) => {
-    response.type("application/javascript").send(
-      `window.__PNDS_CONFIG__ = ${JSON.stringify({
-        role,
-        projectId: manifest.id,
-        performerUrl,
-        performerPort: serverConfig.performerPort,
-        monitorPort: serverConfig.monitorPort,
-        outputChannels: audioEngine.outputChannels,
-      })};`,
-    );
-  };
-}
-
-app.get("/__config.js", configScript("performer"));
-monitorApp.get("/__config.js", configScript("monitor"));
-
-const health = new HealthTracker({
+const express = require(sharedEntry('express', '5.3.0'))
+const { Server: SocketIOServer } = require(sharedEntry('socket.io', '4.8.4'))
+const manifest = JSON.parse(
+  await readFile(new URL('./manifest.json', import.meta.url), 'utf8')
+)
+const assignment = process.env.PNDS_RUNTIME_PORTS
+  ? JSON.parse(process.env.PNDS_RUNTIME_PORTS)
+  : null
+if (
+  assignment &&
+  (assignment.version !== 1 ||
+    assignment.services?.length !== 2 ||
+    !['performer', 'monitor'].every(
+      role =>
+        assignment.services.filter(service => service.role === role).length ===
+        1
+    ))
+)
+  throw new Error('Unsupported PNDS runtime listener assignment')
+const serviceFor = role =>
+  assignment?.services.find(service => service.role === role) ?? {
+    role,
+    port: manifest.scoreServer[`${role}Port`],
+  }
+const index = process.argv.indexOf('--audio-mode')
+const mode = index < 0 ? manifest.audio.defaultMode : process.argv[index + 1]
+if (!manifest.audio.supportedModes.includes(mode))
+  throw new Error('Unsupported audio mode')
+let status = 'starting',
+  audio = null,
+  stopping = false,
+  shutdownPromise = null
+const servers = []
+const realtime = new Map()
+let players = null
+const performance = createPerformance({
+  publish(snapshot) {
+    for (const io of realtime.values()) io.emit('pnds:performance', snapshot)
+  },
+})
+const playerConfig = JSON.parse(
+  await readFile(new URL('./public/pnds-player.json', import.meta.url), 'utf8')
+)
+const recording = createPerformanceRecording({
+  performance,
+  performerLabel: playerConfig.recordingPerformer,
+  onMode(state) {
+    for (const io of realtime.values()) io.emit('pnds:recording', state)
+  },
+})
+const playerPolicy = createPlayerPolicy({
   projectId: manifest.id,
-  audioMode,
-  performerPort: serverConfig.performerPort,
-  monitorPort: serverConfig.monitorPort,
-});
-
-app.get("/__pnds/health", health.handler());
-monitorApp.get("/__pnds/health", health.handler());
-
-// QR code for the performer page, shown on the monitor page. Encodes
-// the same resolved performer URL the config and the copyable address
-// carry — one source, no drift.
-monitorApp.get("/qr", qrHandler(performerUrl));
-
-// The lib/ files the monitor page loads in the browser: the bridge
-// modules (theme, spec §5.3; locale, App ≥ v1.3.0), served under the
-// App-contract namespace like /__pnds/health. Monitor port only — the
-// performer branch of the page never loads them and keeps the
-// project's own colors and language.
-monitorApp.get("/__pnds/theme-follow.js", (request, response) => {
-  response.sendFile(path.join(PROJECT_ROOT, "lib", "theme-follow.js"));
-});
-
-monitorApp.get("/__pnds/locale-follow.js", (request, response) => {
-  response.sendFile(path.join(PROJECT_ROOT, "lib", "locale-follow.js"));
-});
-
-// ------------------------------------------------------------
-// Audio layer
-// ------------------------------------------------------------
-
-const audioEngine = new AudioEngine({
-  mode: audioMode,
-  target: oscTarget,
-  projectRoot: PROJECT_ROOT,
-  manifest,
-  environment: process.env,
-});
-const projectAudio = new ProjectAudio(audioEngine);
-
-const registry = new PlayerRegistry({
-  maxClients: audioEngine.outputChannels,
-});
-
-// Seat assignments (token -> {id, out}) survive restarts, so a reopened
-// work hands every known device back its seat and channel. Relocate the
-// file with PNDS_SEATS_FILE (tests and the App point it elsewhere).
-const seats = new SeatsStore({
-  file:
-    process.env.PNDS_SEATS_FILE ||
-    path.join(PROJECT_ROOT, ".pnds-seats.json"),
-});
-
-// ------------------------------------------------------------
-// Startup
-// ------------------------------------------------------------
-
-const server = app.listen(serverConfig.performerPort, "0.0.0.0", () => {
-  printRuntimeInfo();
-});
-
-const monitorServer = monitorApp.listen(
-  serverConfig.monitorPort,
-  "0.0.0.0",
-  () => {
-    console.log(
-      `Monitor page: http://${hostLanIp}:${serverConfig.monitorPort}/`,
-    );
+  onTakeover: socketId =>
+    realtime.get('performer')?.sockets.sockets.get(socketId)?.disconnect(true),
+  onJoin: context => recording.join(context.identity.id),
+  onControl(context, payload) {
+    recording.input(context.identity.id, payload)
+    // Delegate owned input; apply live/replay effects in performance.applyWork.
   },
-);
-
-server.on("error", (error) => {
-  console.error(
-    `Performer HTTP server failed on port ${serverConfig.performerPort}:`,
-    error,
-  );
-  process.exitCode = 1;
-});
-
-monitorServer.on("error", (error) => {
-  console.error(
-    `Monitor HTTP server failed on port ${serverConfig.monitorPort}:`,
-    error,
-  );
-  process.exitCode = 1;
-});
-
-const io = require("socket.io")(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
+  onAction(context, payload) {
+    recording.action(context.identity.id, payload)
+    // Delegate owned actions to the same performance application used by replay.
   },
-});
+  onRelease(context) {
+    recording.leave(context.identity.id)
+    // Delegate owned release; performance callbacks own the actual work effects.
+  },
+  snapshot() {
+    // Admission policy state only; work snapshots belong to performance.snapshot.
+    return {}
+  },
+})
 
-async function startAudio() {
-  health.setAudioStarting();
+const health = () => ({
+  status,
+  projectId: manifest.id,
+  audioMode: mode,
+  audio: {
+    status: audio?.status ?? 'starting',
+    target: audio?.target ?? null,
+    error: null,
+  },
+  scoreServer: {
+    performerPort: serviceFor('performer').port,
+    monitorPort: serviceFor('monitor').port,
+    ...(assignment ? { runtimeRunId: assignment.runId } : {}),
+    error: null,
+  },
+})
 
+const publicRoot = new URL('./public/', import.meta.url)
+const publicDirectory = await realpath(publicRoot)
+const mimeTypes = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+}
+
+// Each page carries digests of its actual script/contract snapshot. A later save
+// cannot change the bytes returned for this page's pinned monitor script URL.
+const monitorSnapshots = new Map()
+const digest = bytes =>
+  `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+async function monitorResource(requestUrl) {
+  const page = await fileResource(
+    new URL('./public/monitor.html', import.meta.url),
+    publicDirectory,
+    mimeTypes['.html']
+  )
+  if (!page) return null
+  const html = page.body.toString('utf8')
+  const hostOrigin = requestUrl.searchParams.get('pndsHostOrigin')
+  if (!hostOrigin || hostOrigin === 'null')
+    return { type: mimeTypes['.html'], body: html }
+  const [script, declaration] = await Promise.all([
+    fileResource(
+      new URL('./public/monitor.js', import.meta.url),
+      publicDirectory,
+      mimeTypes['.js']
+    ),
+    fileResource(
+      new URL('./pnds.preview.json', import.meta.url),
+      null,
+      mimeTypes['.json']
+    ),
+  ])
+  if (!script || !declaration) return null
+  const source = script.body,
+    contract = declaration.body
+  const sourceDigest = digest(source)
+  const contractDigest = digest(contract)
+  const snapshotId = digest(`${sourceDigest}:${contractDigest}`).slice(7)
+  monitorSnapshots.delete(snapshotId)
+  monitorSnapshots.set(snapshotId, source)
+  while (monitorSnapshots.size > 8)
+    monitorSnapshots.delete(monitorSnapshots.keys().next().value)
+  const context = JSON.stringify({
+    hostOrigin,
+    sources: { 'public/monitor.js': sourceDigest },
+    contractDigest,
+  }).replaceAll('<', '\\u003c')
+  const monitorScript =
+    /<script\b([^>]*\bsrc\s*=\s*)(["'])(?:\.\/|\/)monitor\.js\2([^>]*)>/i
+  if (!monitorScript.test(html))
+    throw new Error('monitor.html must load /monitor.js for parameter preview')
+  return {
+    type: mimeTypes['.html'],
+    body: html.replace(
+      monitorScript,
+      (_tag, before, quote, after) =>
+        `<script>window.PNDS_PREVIEW_CONTEXT=${context}</script><script${before}${quote}/monitor.js?pndsSnapshot=${snapshotId}${quote}${after}>`
+    ),
+  }
+}
+async function fileResource(source, directory = null, fixedType = null) {
+  let handle
   try {
-    await projectAudio.start();
-    health.setAudioReady(oscTarget);
+    const project = await realpath(new URL('./', import.meta.url))
+    const file = await realpath(source)
+    if (
+      !file.startsWith(project + sep) ||
+      file
+        .slice(project.length + 1)
+        .split(sep)
+        .some(part => part.startsWith('.')) ||
+      (directory && !file.startsWith(directory + sep))
+    )
+      return null
+    const type = fixedType ?? mimeTypes[extname(file).toLowerCase()]
+    if (!type) return null
+    handle = await open(
+      file,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+    )
+    const opened = await handle.stat()
+    if (!opened.isFile() || (await realpath(source)) !== file) return null
+    const current = await stat(file)
+    if (
+      !current.isFile() ||
+      current.dev !== opened.dev ||
+      current.ino !== opened.ino
+    )
+      return null
+    return { type, body: await handle.readFile() }
   } catch (error) {
-    console.error("[audio] start failed:", error);
-    health.setError(error);
-    process.exitCode = 1;
+    if (['ENOENT', 'ENOTDIR', 'ELOOP'].includes(error.code)) return null
+    throw error
+  } finally {
+    await handle?.close()
+  }
+}
+async function publicResource(path) {
+  const decoded = decodeURIComponent(path)
+  if (decoded.split('/').some(part => part.startsWith('.'))) return null
+  return fileResource(new URL(`.${decoded}`, publicRoot), publicDirectory)
+}
+
+// Validate the cached declaration source before starting audio or either listener.
+// A valid schema is not permission to publish a private/external file's values.
+const monitorViewSource = await fileResource(
+  new URL('./public/monitor-view.json', import.meta.url),
+  publicDirectory,
+  mimeTypes['.json']
+)
+if (!monitorViewSource)
+  throw new Error(
+    'Monitor view declarations require a safe public project file'
+  )
+const monitorView = prepareMonitorView(
+  JSON.parse(monitorViewSource.body.toString('utf8'))
+)
+
+async function listen(service, page) {
+  if (stopping) return
+  const app = express()
+  app.disable('x-powered-by')
+  app.use(async (request, response, next) => {
+    response.setHeader('Cache-Control', 'no-store')
+    if (
+      page === 'performer.html' &&
+      (await recording.handle(request, response))
+    )
+      return
+    if (!['GET', 'HEAD'].includes(request.method)) {
+      response.writeHead(405)
+      response.end()
+      return
+    }
+    next()
+  })
+  app.get('/__pnds/context.js', (_request, response) => {
+    // The confirmed Host entry supplies the real same-origin context script.
+    response.setHeader('Content-Type', 'text/javascript; charset=utf-8')
+    response.end('// No confirmed Host participation on this direct address.\n')
+  })
+  app.get('/__pnds/health', (request, response) => {
+    response.setHeader('Content-Type', 'application/json; charset=utf-8')
+    response.end(
+      request.method === 'HEAD' ? undefined : JSON.stringify(health())
+    )
+  })
+  // Deliberately keep the bounded resource resolver; express.static would broaden
+  // the published files and change the canonical-path, MIME and cache contract.
+  app.use(async (request, response) => {
+    let requestUrl
+    try {
+      requestUrl = new URL(request.url, 'http://localhost')
+    } catch {
+      response.writeHead(400)
+      response.end()
+      return
+    }
+    const path = requestUrl.pathname
+    try {
+      let resource
+      if (path === '/pnds-players.js') {
+        resource = await fileResource(
+          new URL('./modules/pnds-players/client.js', import.meta.url),
+          null,
+          mimeTypes['.js']
+        )
+      } else if (
+        path === '/monitor.js' &&
+        requestUrl.searchParams.has('pndsSnapshot')
+      ) {
+        const body = monitorSnapshots.get(
+          requestUrl.searchParams.get('pndsSnapshot')
+        )
+        resource = body ? { type: mimeTypes['.js'], body } : null
+      } else if (
+        (path === '/' && page === 'monitor.html') ||
+        path === '/monitor.html'
+      ) {
+        resource = await monitorResource(requestUrl)
+      } else {
+        if (page === 'monitor.html' && path === '/__pnds/monitor-view.json') {
+          resource = {
+            type: mimeTypes['.json'],
+            body: JSON.stringify(monitorView.declarations),
+          }
+        } else if (
+          page === 'monitor.html' &&
+          path === '/monitor-state-client.js'
+        ) {
+          resource = await fileResource(
+            new URL(
+              './modules/pnds-monitor-state/monitor-client.js',
+              import.meta.url
+            ),
+            null,
+            mimeTypes['.js']
+          )
+        } else {
+          resource = await publicResource(path === '/' ? `/${page}` : path)
+        }
+      }
+      if (!resource) {
+        response.writeHead(404)
+        response.end()
+        return
+      }
+      response.setHeader('Content-Type', resource.type)
+      response.end(request.method === 'HEAD' ? undefined : resource.body)
+    } catch (error) {
+      response.writeHead(
+        error instanceof URIError ? 400 : error.code === 'ENOENT' ? 404 : 500
+      )
+      response.end()
+    }
+  })
+  const server = http.createServer(app)
+  const role = page === 'monitor.html' ? 'monitor' : 'performer'
+  const io = new SocketIOServer(server)
+  realtime.set(role, io)
+  const views = role === 'monitor' ? monitorView.attach(io) : null
+  servers.push({ server, io, views })
+  if (role === 'performer') {
+    players = attachPlayers(io, {
+      events: playerEvents,
+      policy: playerPolicy,
+      makeJoined: assignment => playerPolicy.joined(assignment),
+      onError: error => console.error('PNDS player:', error.message),
+    })
+  }
+
+  io.on('connection', socket => {
+    socket.data.role = role
+    socket.emit('pnds:connected', { projectId: manifest.id, role })
+    socket.emit('pnds:performance', performance.snapshot())
+    socket.emit('pnds:recording', recording.state)
+    if (role === 'monitor')
+      socket.on('pnds:conduct', (payload, acknowledge) => {
+        try {
+          const applied = recording.conduct(payload)
+          if (typeof acknowledge === 'function') acknowledge({ applied })
+        } catch (error) {
+          console.error('PNDS conductor:', error.message)
+          if (typeof acknowledge === 'function')
+            acknowledge({ applied: false, error: error.message })
+        }
+      })
+    // Add piece events here; use realtime.get('performer') or realtime.get('monitor').
+  })
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(
+      service.fd === undefined
+        ? { port: service.port, host: '0.0.0.0' }
+        : { fd: service.fd },
+      () => {
+        server.removeListener('error', reject)
+        resolve()
+      }
+    )
+  })
+  server.on('error', error => {
+    console.error(error.message)
+    void shutdown(1)
+  })
+}
+
+async function start() {
+  audio = await createAudio(mode)
+  if (stopping) return
+  await readFile(new URL('./public/performer.html', import.meta.url))
+  await readFile(new URL('./public/monitor.html', import.meta.url))
+  await listen(serviceFor('performer'), 'performer.html')
+  await listen(serviceFor('monitor'), 'monitor.html')
+  if (assignment && !stopping) {
+    const temporary = `${assignment.reportPath}.tmp`
+    await writeFile(
+      temporary,
+      JSON.stringify({
+        version: 1,
+        runId: assignment.runId,
+        status: 'bound',
+        services: assignment.services.map(({ role, port }) => ({ role, port })),
+      })
+    )
+    await rename(temporary, assignment.reportPath)
+  }
+  if (!stopping) {
+    status = 'ready'
+    console.log(`[pnds] ${manifest.id} ready (${mode})`)
   }
 }
 
-startAudio();
-
-// ------------------------------------------------------------
-// Socket.IO protocol (lib/protocol.js owns the semantics)
-// ------------------------------------------------------------
-
-attachProtocol(io, {
-  events: shared.events,
-  registry,
-  projectAudio,
-  seats,
-});
-
-// ------------------------------------------------------------
-// Monitor view state (lib/monitor-state.js owns the semantics)
-// ------------------------------------------------------------
-
-// The monitor page's view controls (view toggles, debug picks) live on
-// the server as the single source of truth, on their own Socket.IO
-// namespace — every copy of the page converges there. Memory-only,
-// session-scoped; lib/monitor-state.js owns the semantics.
-attachMonitorState(io.of(shared.monitorNamespace), {
-  events: shared.events,
-  defaults: shared.monitorViewState,
-});
-
-// ------------------------------------------------------------
-// Shutdown
-// ------------------------------------------------------------
-
-attachShutdown({
-  onShutdown: async () => {
-    health.setStopping();
-
-    // Drop every connected client first — performers, the monitor
-    // page's observer socket AND its view-state socket (namespace
-    // broadcasts are not covered by the main-namespace call). io.close()
-    // waits for clients to take their disconnect; a phone on a weak
-    // network must not outlive the host's kill window. Per-step elapsed
-    // below: a slow step found in the wild is diagnosable from the
-    // output tail alone.
-    const t0 = Date.now();
-    io.disconnectSockets(true);
-    io.of(shared.monitorNamespace).disconnectSockets(true);
-    io.close();
-    const tSockets = Date.now() - t0;
-
-    const t1 = Date.now();
-    await projectAudio.stop();
-    const tAudio = Date.now() - t1;
-
-    const t2 = Date.now();
-    await closeHttpServer(server);
-    await closeHttpServer(monitorServer);
-    const tHttp = Date.now() - t2;
-
-    console.log(
-      `[shutdown] steps: sockets ${tSockets}ms, audio ${tAudio}ms, http ${tHttp}ms`,
-    );
-  },
-});
-
-// ------------------------------------------------------------
-// Console output
-// ------------------------------------------------------------
-
-function printRuntimeInfo() {
-  console.log(`[server] ${manifest.name} v${manifest.version}`);
-  console.log(
-    `[server] audio mode: ${formatAudioMode(audioMode)} (target ${oscTarget})`,
-  );
-  console.log(
-    `[server] output: ${audioEngine.outputChannels} channels from bus ${audioEngine.outputBus}`,
-  );
-  console.log(`[server] performer page: ${performerUrl}`);
+function shutdown(code = 0) {
+  if (shutdownPromise) return shutdownPromise
+  stopping = true
+  status = 'stopping'
+  shutdownPromise = (async () => {
+    await startup.catch(() => {
+      /* Startup failure still follows the same shutdown path. */
+    })
+    await Promise.all(
+      servers.map(
+        ({ server, io, views }) =>
+          new Promise(resolve => {
+            views?.close()
+            io.close(resolve)
+            server.closeAllConnections()
+          })
+      )
+    )
+    await players?.close()
+    try {
+      recording.close()
+    } catch (error) {
+      code = 1
+      console.error('PNDS work cleanup:', error.message)
+    }
+    await audio?.close().catch(error => console.error(error.message))
+    console.log('[pnds] stopped')
+    process.exit(code)
+  })()
+  return shutdownPromise
 }
+
+process.on('SIGTERM', () => {
+  void shutdown()
+})
+process.on('SIGINT', () => {
+  void shutdown()
+})
+const startup = start()
+void startup.catch(error => {
+  console.error(error.message)
+  void shutdown(1)
+})

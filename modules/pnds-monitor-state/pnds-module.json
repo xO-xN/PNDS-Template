@@ -1,0 +1,53 @@
+{
+  "compatibility": {
+    "adaptation": [
+      "Work declares low-frequency view keys, defaults and optional value validators",
+      "Work mounts a dedicated monitor namespace; performers do not connect to it",
+      "State is session-local and resets when the server module is recreated",
+      "No dependency on players, theme-follow or locale-follow modules"
+    ],
+    "hostProtocol": 1,
+    "runtime": [
+      "Node 24",
+      "Socket.IO 4.x",
+      "Browser Socket.IO 4.x client"
+    ],
+    "version": "0.2.0"
+  },
+  "files": [
+    {
+      "path": "monitor-state.js",
+      "sha256": "3e30051a654a8927972159f689d57def001eaa81587c7bf87c32f47890a114d8"
+    },
+    {
+      "path": "monitor-client.js",
+      "sha256": "d0c999e3f9edb11f21b85caefa16623fb76033b479e2415c36602b9230b09ff4"
+    },
+    {
+      "path": "package.json",
+      "sha256": "1ae37eaf58b0a679dec937ab58ec816c769d497468ed2c132f8517db27fc1909"
+    },
+    {
+      "path": "README.md",
+      "sha256": "74d7d979dbc1e0091045ce59cdd6f74305eb1d5f6ca8ffaa5c80a4b51dc9b4a9"
+    },
+    {
+      "path": "compatibility.json",
+      "sha256": "5dc11eef1f0f36847e7427679fcb8340351637ae03fa34df0ffaa447ac3de657"
+    },
+    {
+      "path": "LICENSE.md",
+      "sha256": "95ae07227ad3397787ebc718275eae3a3b9b8ba5cbcf3cc1be8781769c1417ed"
+    }
+  ],
+  "formatVersion": 1,
+  "id": "monitor-state",
+  "source": {
+    "repository": "https://github.com/xO-xN/PNDS-Template",
+    "revision": "sha256:374be3dddd5b1613572e3417b858c351932b88f95a0d1d531b70d31ac0d9e5ce",
+    "version": "0.7.2"
+  },
+  "validation": "creator-behavior-requires-validation",
+  "version": "0.2.0",
+  "wiring": "blank-default-v1"
+}

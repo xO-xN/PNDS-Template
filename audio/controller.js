@@ -1,324 +1,163 @@
-// PNDS Template work layer: per-client sine voice control.
-//
-// This is the file creators edit to change the *semantics* of the work
-// (what the faders do, how voices are routed) — including the shape of
-// control payloads, which lib/protocol.js forwards opaquely. The
-// transport and engine primitives live in lib/.
-//
-// Conventions:
-// - Every joined client gets one voice (one sine synth in Internal mode).
-// - Odd ids default to output channel 1, even ids to channel 2.
-// - The monitor page can reassign any client to another output channel.
-// - Each voice is capped at -6 dB in the SynthDef (amp * 0.5).
+// Silence is a technical placeholder; replace this file with the piece's own audio mapping.
+import dgram from 'node:dgram'
+import { readFile } from 'node:fs/promises'
 
-const { oscFloat } = require("../lib/osc-transport");
-const {
-  freqRange,
-  registers,
-  defaultRegister,
-} = require("../public/shared");
+import { pathToFileURL } from 'node:url'
 
-const SYNTH_NAME = "template-sine";
-const GROUP_ID = 1000;
-const NODE_BASE = 1000;
-// Single source of truth: the same freqRange the performer page displays
-// (public/shared.js registers). Change the ranges there, not here.
-const FREQ_MIN = freqRange.min;
-const FREQ_MAX = freqRange.max;
-
-function clamp01(value) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return 0;
-  }
-
-  return Math.max(0, Math.min(1, number));
+const shared = process.env.PNDS_SHARED_LIBRARIES
+  ? JSON.parse(process.env.PNDS_SHARED_LIBRARIES)['osc-min']
+  : null
+if (
+  process.env.PNDS_SHARED_LIBRARIES &&
+  (!shared?.path || shared.version !== '2.1.2')
+)
+  throw new Error('Missing exact shared osc-min 2.1.2 entry')
+const osc = await import(shared ? pathToFileURL(shared.path).href : 'osc-min')
+function message(address, args) {
+  const view = osc.toBuffer({
+    address,
+    args: args.map(value => ({
+      type: Buffer.isBuffer(value)
+        ? 'blob'
+        : typeof value === 'string'
+          ? 'string'
+          : 'integer',
+      value,
+    })),
+  })
+  return Buffer.from(view.buffer, view.byteOffset, view.byteLength)
+}
+function reply(bytes) {
+  const packet = osc.fromBuffer(bytes)
+  if (packet.oscType !== 'message') throw new Error('Expected an OSC message')
+  return { address: packet.address, args: packet.args.map(arg => arg.value) }
 }
 
-// Register (fader band) from a control payload: 1 | 2 | 3, default 3.
-function resolveRegister(value) {
-  const number = Number(value);
-
-  return number === 1 || number === 2 || number === 3
-    ? number
-    : defaultRegister;
-}
-
-// Fader value (0..1) to frequency in Hz: linear over the register's range
-// (registers from shared.js). Invalid registers fall back to the default.
-function mapFreq(value01, register = defaultRegister) {
-  const range = registers[resolveRegister(register)].freqRange;
-
-  return Math.round(
-    range.min + clamp01(value01) * (range.max - range.min),
-  );
-}
-
-// Fader response curve for amp (audio taper): the lower half of the fader
-// gets finer control, matching how mixing-desk faders behave.
-function mapAmp(value01) {
-  const value = clamp01(value01);
-
-  return value * value;
-}
-
-// Default output channel: odd ids -> channel 1, even ids -> channel 2.
-function defaultOutChannel(id) {
-  return id % 2 === 1 ? 1 : 2;
-}
-
-// Apply a control payload to a voice record. The payload arrives
-// unvalidated from the wire (protocol forwards it opaquely): fields
-// that are not finite numbers are ignored — a malformed message must
-// not zero a fader mid-show — and unknown fields are not read. Single
-// owner of the raw→mapped mapping: addVoice(…, state) and setControls
-// feed through here, so birth-with-state and live control cannot drift
-// apart.
-function applyControls(voice, payload) {
-  const fields = payload || {};
-  const range = Number(fields.range);
-
-  if (range === 1 || range === 2 || range === 3) {
-    voice.register = range;
-  }
-
-  if (Number.isFinite(Number(fields.amp))) {
-    voice.rawAmp = clamp01(fields.amp);
-  }
-
-  if (Number.isFinite(Number(fields.freq))) {
-    voice.rawFreq = clamp01(fields.freq);
-  }
-
-  voice.amp = mapAmp(voice.rawAmp);
-  voice.freq = mapFreq(voice.rawFreq, voice.register);
-}
-
-function validateOutChannel(channel, outputChannels) {
-  const value = Number(channel);
-
-  if (
-    !Number.isInteger(value) ||
-    value < 1 ||
-    value > outputChannels
-  ) {
-    throw new Error(
-      `Invalid output channel '${channel}': expected an integer from 1 to ${outputChannels}.`,
-    );
-  }
-
-  return value;
-}
-
-class ProjectAudio {
-  // The engine only needs to satisfy the engine interface (mode,
-  // outputChannels, outputBus and the command methods) — no class check,
-  // so tests and alternate engines slot in at this seam.
-  constructor(engine) {
-    this.engine = engine;
-    this.voices = new Map(); // id -> { nodeId, amp, freq, out }
-  }
-
-  get mode() {
-    return this.engine.mode;
-  }
-
-  async start() {
-    await this.engine.start();
-
-    if (this.engine.mode === "internal") {
-      // Project-owned group created before health reports ready.
-      await this.engine.createGroup(GROUP_ID);
-    }
-  }
-
-  // A state (the shape voiceState() returns) births the voice already
-  // restored — one /s_new or one message burst carries the correct
-  // values. A default birth followed by restore would pass through
-  // audible intermediate states (restored amp on the default channel).
-  async addVoice(id, state = null) {
-    const voice = {
-      nodeId: NODE_BASE + id,
-      amp: 0,
-      // The default birth freq goes through mapFreq like every other
-      // freq: an untouched voice must report exactly what a raw-0 fader
-      // maps to (rounded), not the unrounded band minimum.
-      freq: mapFreq(0),
-      rawAmp: 0,
-      rawFreq: 0,
-      register: defaultRegister,
-      out: defaultOutChannel(id),
-    };
-
-    if (state) {
-      applyControls(voice, state);
-
-      // A persisted out the current engine can't route (the channel
-      // count changed between runs) falls back to the default instead of
-      // rejecting the device — the seat record heals on the next persist.
-      try {
-        voice.out = validateOutChannel(state.out, this.engine.outputChannels);
-      } catch {
-        voice.out = defaultOutChannel(id);
-      }
-    }
-
-    if (this.engine.mode === "internal") {
-      await this.engine.createSynth({
-        name: SYNTH_NAME,
-        nodeId: voice.nodeId,
-        groupId: GROUP_ID,
-        out: this.busFor(voice.out),
-        controls: {
-          amp: voice.amp,
-          freq: voice.freq,
-        },
-      });
-
-      // A fire-and-forget /s_new that failed (bad def name, dead engine)
-      // is otherwise silent — read a control back to prove the node
-      // exists. The throw rejects the join instead of leaving a phantom
-      // voice the server believes in.
-      await this.engine.verifySynthControl(voice.nodeId, "amp");
-    } else if (this.engine.mode === "external") {
-      await this.sendVoiceState(id, voice);
-    }
-
-    this.voices.set(id, voice);
-
-    return voice;
-  }
-
-  async setControls(id, payload) {
-    const voice = this.voices.get(id);
-
-    if (!voice) {
-      throw new Error(`No voice for client ${id}.`);
-    }
-
-    // Keep the raw fader values (0..1) so a reconnect can restore the
-    // voice by re-mapping them (setControls must not be fed already-mapped
-    // values — that would map them twice). The payload is applied
-    // field-by-field; applyControls is the wire-side gatekeeper.
-    applyControls(voice, payload);
-
-    if (this.engine.mode === "internal") {
-      await this.engine.setControls(voice.nodeId, {
-        amp: voice.amp,
-        freq: voice.freq,
-      });
-    } else if (this.engine.mode === "external") {
-      await this.sendVoiceState(id, voice);
-    }
-  }
-
-  async setOutChannel(id, channel) {
-    const voice = this.voices.get(id);
-
-    if (!voice) {
-      throw new Error(`No voice for client ${id}.`);
-    }
-
-    voice.out = validateOutChannel(channel, this.engine.outputChannels);
-
-    if (this.engine.mode === "internal") {
-      await this.engine.setControls(voice.nodeId, {
-        out: this.busFor(voice.out),
-      });
-    } else if (this.engine.mode === "external") {
-      await this.engine.send(
-        `/c${id}/out`,
-        [oscFloat(voice.out)],
-      );
-    }
-  }
-
-  hasVoice(id) {
-    return this.voices.has(id);
-  }
-
-  // Persistable voice state keyed by claim token: the raw fader values
-  // plus register and output channel. voiceState()/restoreVoice() are the
-  // single owner of the reconnect-restore shape.
-  voiceState(id) {
-    const voice = this.voices.get(id);
-
-    if (!voice) {
-      return null;
-    }
-
+export async function createAudio(mode) {
+  const target = mode === 'none' ? null : process.env.PNDS_OSC_TARGET
+  if (mode !== 'none' && !target) throw new Error('PNDS_OSC_TARGET is required')
+  // External has no piece protocol yet and sends no messages; None opens no audio socket.
+  if (mode !== 'internal')
     return {
-      amp: voice.rawAmp,
-      freq: voice.rawFreq,
-      range: voice.register,
-      out: voice.out,
-    };
-  }
-
-  // Restore a persisted voiceState(): re-map the raw values. Feeding
-  // already-mapped values here would map them twice (see setControls).
-  async restoreVoice(id, state) {
-    await this.setControls(id, {
-      amp: state.amp,
-      freq: state.freq,
-      range: state.range,
-    });
-
-    await this.setOutChannel(id, state.out);
-  }
-
-  async removeVoice(id) {
-    const voice = this.voices.get(id);
-
-    if (!voice) {
-      return;
+      status: mode === 'none' ? 'disabled' : 'ready',
+      target,
+      close: async () => {
+        /* No audio resources exist in preview modes. */
+      },
     }
-
-    if (this.engine.mode === "internal") {
-      await this.engine.freeNode(voice.nodeId);
+  const bus = Number(process.env.PNDS_AUDIO_OUTPUT_BUS)
+  const channels = Number(process.env.PNDS_AUDIO_OUTPUT_CHANNELS)
+  if (
+    !Number.isInteger(bus) ||
+    bus < 1 ||
+    !Number.isInteger(channels) ||
+    channels < 1 ||
+    channels > 64
+  )
+    throw new Error(
+      'Internal audio requires injected private buses and channel count'
+    )
+  const match = /^(127\.0\.0\.1):([0-9]+)$/.exec(target)
+  if (!match || Number(match[2]) < 1 || Number(match[2]) > 65535)
+    throw new Error('Internal target must be the App loopback scsynth')
+  const socket = dgram.createSocket('udp4')
+  let waiting = null,
+    groupCreated = false,
+    syncId = 0,
+    closed = false,
+    audioError = null
+  const fail = error => {
+    audioError = error
+    waiting?.fail(error)
+  }
+  socket.on('message', bytes => {
+    try {
+      const packet = reply(bytes)
+      if (packet.address === '/fail')
+        fail(new Error(String(packet.args[1] ?? 'scsynth failure')))
+      else waiting?.receive(packet)
+    } catch {
+      /* unrelated or malformed reply */
     }
-
-    this.voices.delete(id);
+  })
+  socket.on('error', fail)
+  const send = (address, args) =>
+    new Promise((resolve, reject) =>
+      socket.send(message(address, args), error =>
+        error ? reject(error) : resolve()
+      )
+    )
+  const exchange = (address, args, accept) =>
+    new Promise((resolve, reject) => {
+      let settled = false
+      const finish = error => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        waiting = null
+        if (error) reject(error)
+        else resolve()
+      }
+      const timer = setTimeout(
+        () => finish(new Error(`scsynth did not acknowledge ${address}`)),
+        1500
+      )
+      waiting = {
+        fail: finish,
+        receive: packet => {
+          if (accept(packet)) finish()
+        },
+      }
+      void send(address, args).catch(finish)
+    })
+  const sync = async () => {
+    if (audioError) throw audioError
+    const id = ++syncId
+    await exchange(
+      '/sync',
+      [id],
+      packet => packet.address === '/synced' && packet.args[0] === id
+    )
   }
-
-  async stop() {
-    await this.engine.stop();
+  const close = async () => {
+    if (closed) return
+    closed = true
+    audioError = null // Cleanup still sends the owned group's release after a startup error.
+    try {
+      if (groupCreated) {
+        await send('/n_free', [1000])
+        await sync()
+      }
+    } finally {
+      socket.close()
+    }
   }
-
-  // Physical scsynth bus for a 1-based work channel.
-  busFor(channel) {
-    return this.engine.outputBus + channel - 1;
-  }
-
-  snapshot() {
-    return [...this.voices.entries()].map(([id, voice]) => ({
-      id,
-      amp: voice.amp,
-      freq: voice.freq,
-      register: voice.register,
-      out: voice.out,
-    }));
-  }
-
-  async sendVoiceState(id, voice) {
-    await this.engine.send(`/c${id}/amp`, [oscFloat(voice.amp)]);
-    await this.engine.send(`/c${id}/freq`, [oscFloat(voice.freq)]);
-    await this.engine.send(`/c${id}/out`, [oscFloat(voice.out)]);
+  try {
+    await new Promise((resolve, reject) => {
+      socket.once('error', reject)
+      socket.connect(Number(match[2]), match[1], () => {
+        socket.removeListener('error', reject)
+        resolve()
+      })
+    })
+    const definition = await readFile(
+      new URL('../supercollider/synthdefs/pndsBlank.scsyndef', import.meta.url)
+    )
+    await exchange(
+      '/d_recv',
+      [definition],
+      packet => packet.address === '/done' && packet.args[0] === '/d_recv'
+    )
+    await send('/g_new', [1000, 0, 0])
+    groupCreated = true
+    for (let i = 0; i < channels; i++)
+      await send('/s_new', ['pndsBlank', 1001 + i, 1, 1000, 'out', bus + i])
+    await sync()
+    return { status: 'ready', target, close }
+  } catch (error) {
+    await close().catch(() => {
+      /* Preserve the startup error after attempted cleanup. */
+    })
+    throw error
   }
 }
-
-module.exports = {
-  ProjectAudio,
-  clamp01,
-  mapFreq,
-  mapAmp,
-  resolveRegister,
-  defaultOutChannel,
-  validateOutChannel,
-  SYNTH_NAME,
-  GROUP_ID,
-  NODE_BASE,
-  FREQ_MIN,
-  FREQ_MAX,
-};

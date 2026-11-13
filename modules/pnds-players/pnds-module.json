@@ -1,0 +1,61 @@
+{
+  "compatibility": {
+    "adaptation": [
+      "Work supplies admission, claim persistence, identity and sound recovery policy",
+      "Performer uses the page origin; storage and tokenKey are scoped to the work and browser origin",
+      "Continuous filtering is opt-in; discrete actions use a separate event",
+      "Monitor view synchronization is an independent module with distinct files"
+    ],
+    "hostProtocol": 1,
+    "runtime": [
+      "Node 24",
+      "Socket.IO 4.x",
+      "Browser Socket.IO 4.x client"
+    ],
+    "version": "0.2.0"
+  },
+  "files": [
+    {
+      "path": "players.js",
+      "sha256": "33c200fef9202f2ad87687940c36c333c29be0f236e6c069a07d312df7913c65"
+    },
+    {
+      "path": "seats-store.js",
+      "sha256": "2b7e6584992fbfbb1703a5aece173b88b3d72314508cf4a61fc04e82e54dc355"
+    },
+    {
+      "path": "protocol.js",
+      "sha256": "4ac9436df92b42ca2f17dbdd0823ecea4011e19cabd82ac2ce9dc84fc9c0d3f1"
+    },
+    {
+      "path": "client.js",
+      "sha256": "436b85df34aa13bba7a92d5fc021bd3ffa9f830d4e4148a2e70a8af9686b0427"
+    },
+    {
+      "path": "package.json",
+      "sha256": "1ae37eaf58b0a679dec937ab58ec816c769d497468ed2c132f8517db27fc1909"
+    },
+    {
+      "path": "README.md",
+      "sha256": "a1fca5dd48fe122890752ca36e0ca33be8b739e9afb0c729acc0e9d0064fcf41"
+    },
+    {
+      "path": "compatibility.json",
+      "sha256": "7bb6dc2fbe0d4ad3a6f33952e45333072f94320dcbe849d2c40979e05cc443dd"
+    },
+    {
+      "path": "LICENSE.md",
+      "sha256": "95ae07227ad3397787ebc718275eae3a3b9b8ba5cbcf3cc1be8781769c1417ed"
+    }
+  ],
+  "formatVersion": 1,
+  "id": "players",
+  "source": {
+    "repository": "https://github.com/xO-xN/PNDS-Template",
+    "revision": "sha256:374be3dddd5b1613572e3417b858c351932b88f95a0d1d531b70d31ac0d9e5ce",
+    "version": "0.7.2"
+  },
+  "validation": "creator-behavior-requires-validation",
+  "version": "0.2.0",
+  "wiring": "blank-default-v1"
+}
